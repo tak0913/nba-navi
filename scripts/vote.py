@@ -57,12 +57,17 @@ def build_candidates(month, records):
     games = [r for r in records if r["date"][:7] == month and r.get("tier") in ("SS", "S", "A")]
     by_id = {r["id"]: r for r in games}
     cands = []
+    # 物語の自動検出は、基準が決まるまで止めておく(config の vote.auto_stories)
+    if not V.get("auto_stories", False):
+        games_only = True
+    else:
+        games_only = False
     # 物語①:同じ選手が今月なんども大活躍(2試合以上)
     players = {}
     for r in games:
         for name, abbr, kind in r.get("hl") or []:
             players.setdefault((name, abbr), []).append((r["id"], kind))
-    for (name, abbr), evs in players.items():
+    for (name, abbr), evs in ([] if games_only else players.items()):
         ids = sorted({i for i, _ in evs}, key=lambda i: by_id[i]["date"])
         if len(ids) < 2:
             continue
@@ -74,7 +79,7 @@ def build_candidates(month, records):
     pairs = {}
     for r in games:
         pairs.setdefault(tuple(sorted((r["home"], r["away"]))), []).append(r["id"])
-    for (a, b), ids in pairs.items():
+    for (a, b), ids in ([] if games_only else pairs.items()):
         if len(ids) >= 2:
             ids.sort(key=lambda i: by_id[i]["date"])
             cands.append({"key": f"m:{a}-{b}", "kind": "story", "name": f"{a}×{b} 因縁の{len(ids)}戦", "games": ids})

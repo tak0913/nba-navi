@@ -125,7 +125,8 @@
     "min_total": 20,
     "winners": 3,
     "max_candidates": 15,
-    "fallback_buzz_min": 0.75
+    "fallback_buzz_min": 0.75,
+    "auto_stories": false
   },
   "app_url": "https://tak0913.github.io/nba-navi/"
 }
