@@ -334,7 +334,7 @@ function renderAces(){
    Object.entries(DATA.stars).sort().map(([t,ps])=>`<div class="team"><div class="n">${t}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p">${i===0?"エース":i===1?"セカンド":"　核"}:${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px">${TIER_JA[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`).join("")+`</div>`;
 }
 function renderHelp(){
-  const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc, P=DATA.points||{};
+  const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc, P=DATA.points||{}, R=DATA.rules||{};
   const sec=(t,b)=>`<div class="legend"><b style="font-size:15px">${t}</b><div style="margin-top:6px;color:var(--text);line-height:1.7">${b}</div></div>`;
   const rule={SS:`中身${T.SS.min}点以上で今季トップ${T.SS.season_top_n}、または歴史的記録 → 30日後も語られていたら殿堂入り`,S:`中身${T.S.min}点以上で今季の上位${T.S.season_top_frac*100}%`,A:`中身${T.A.min}点以上でその月の上位${T.A.month_top_frac*100}%`,B:`中身${T.B.min}点以上でその週の上位${T.B.week_top_frac*100}%`,C:`中身${T.C.min}点以上`};
   const tiers=["SS","S","A","B","C"].map(r=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0"><div class="badge ${r}" style="width:36px;height:36px;font-size:14px">${r}</div><div><b>${nm[r]}</b>:${ds[r]}<br><span style="color:var(--sub);font-size:12px">${rule[r]}</span></div></div>`).join("");
@@ -366,6 +366,7 @@ function renderHelp(){
     ・守備(ブロック5かスティール4)${P.defense??20}/トリプルダブル ${P.triple_double??20}/2つ目以降は+5ずつ<br>
     ・これに選手の格を掛ける(MVP級×1.0/AS級×0.7/エース×0.4/その他×0.2)。「華」のある選手は一段上の格で数える。試合を決めるプレーにスターが絡んだら+10<br><br>
     <b>③ カードの格(最大20)</b>:両チーム勝率5割以上 +10/両チームのスター出場 +10/エース欠場 −5(エースがMVP級・AS級なら −10)/エースとセカンドが両方欠場 −15<br><br>
+    <b>⑥ いつものスタメンの欠場</b>:そのチームの直近${R.usual_window??10}試合で半分以上スタメンだった選手が出なかったら1人 ${P.starter_out??-3}(1チーム ${P.starter_out_cap??-9}まで。エース表の選手は③で引くので数えない)/両チームとも${R.depleted_min??2}人以上欠けたらさらに ${P.both_depleted??-5}/展開の点が${R.absence_soften_flow??30}以上の試合は半分(控え中心でももつれた試合は面白いので)<br><br>
     <b>④ チーム(最大10)</b>:強み同士の対決 +5/今日だけ異常に良い攻撃・守備 +5ずつ<br><br>
     <b>⑤ 歴史的記録(上限なし・格は掛けない)</b>:60点 +${P.record60??20}/70点以上 +${P.record70??40}/20-20-20 +${P.record60??20}/クアドルプルダブル +${P.record70??40}。70点以上とクアドルプルダブルは自動でSS候補<br><br>
     <span style="color:var(--sub)">勝負が決まった後(第4Q残り5分以降で20点差以上)の点は数えない。ただし、そのあと10点差以内まで詰まったら数える。</span>`)}

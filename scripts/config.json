@@ -50,7 +50,10 @@
     "record70": 40,
     "star_ace_out": -10,
     "late_surge": 15,
-    "late_upset": 25
+    "late_upset": 25,
+    "starter_out": -3,
+    "starter_out_cap": -9,
+    "both_depleted": -5
   },
   "rules": {
     "clutch_seconds": 300,
@@ -70,7 +73,13 @@
     "clutch_min_seconds": 60,
     "late_window_seconds": 360,
     "late_surge_from": 15,
-    "garbage_recover_margin": 10
+    "garbage_recover_margin": 10,
+    "usual_window": 10,
+    "usual_min_games": 3,
+    "usual_starter_frac": 0.5,
+    "depleted_min": 2,
+    "absence_soften_flow": 30,
+    "absence_soften_mult": 0.5
   },
   "tiers": {
     "SS": {

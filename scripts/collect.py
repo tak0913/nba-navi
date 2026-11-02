@@ -488,6 +488,9 @@ def score_record(e, start, summary, season, strong, label=None):
         "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
         "home": teams[0]["abbr"], "away": teams[1]["abbr"],
         "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl,
+        # 出場メンバー(いつものスタメンの欠場を数えるため。画面には渡さない)
+        "lineup": {ab: {"st": {r["id"]: r["name"] for r in rows if r["starter"] and not r["dnp"]},
+                        "pl": [r["id"] for r in rows if not r["dnp"]]} for ab, rows in box.items()},
         "end_utc": plays[-1].get("wallclock") if plays else None,
         "buzz": {"d1": None, "d7": None, "d30": None},
     }
@@ -777,6 +780,45 @@ def hall_ok(r):
 
 
 # ---------- 画面用の1試合 ----------
+def apply_absence(records):
+    """⑥ いつものスタメンの欠場。
+    いつものスタメン = そのチームの直近 usual_window 試合で、半分以上スタメンだった選手(usual_min_games 試合たってから)。
+    その選手が試合に出なかったら1人 starter_out 点(1チーム starter_out_cap まで)。エース表の選手はカードの格で
+    もう引いているので数えない。両チームとも depleted_min 人以上欠けていたら、さらに both_depleted 点。
+    展開の点が absence_soften_flow 以上の試合(控え中心でももつれた試合は面白い)は減点を absence_soften_mult 倍にする。
+    何度計算しても同じになるよう、元の点(content_base)から引き直す"""
+    starts = {}   # (シーズン, チーム) → 直近の試合のスタメン一覧
+    for r in sorted(records, key=lambda r: (r["date"], r["id"])):
+        r.setdefault("content_base", r["content"])
+        lu = r.get("lineup") or {}
+        missing = {}
+        for ab in (r["home"], r["away"]):
+            hist = starts.get((r["season"], ab), [])[-R["usual_window"]:]
+            if len(hist) < R["usual_min_games"] or ab not in lu:
+                continue
+            cnt, names = {}, {}
+            for st in hist:
+                for pid, nm in st.items():
+                    cnt[pid] = cnt.get(pid, 0) + 1
+                    names[pid] = nm
+            aces = {norm(p["name"]) for p in star_list(ab)}
+            usual = [pid for pid, c in cnt.items() if c / len(hist) >= R["usual_starter_frac"]]
+            missing[ab] = [names[pid] for pid in usual
+                           if pid not in lu[ab]["pl"] and norm(names[pid]) not in aces]
+        pen = sum(max(P["starter_out_cap"], P["starter_out"] * len(m)) for m in missing.values())
+        if len(missing) == 2 and all(len(m) >= R["depleted_min"] for m in missing.values()):
+            pen += P["both_depleted"]
+        if r["flow"] >= R["absence_soften_flow"]:
+            pen *= R["absence_soften_mult"]
+        r["absence"] = round(pen, 1)
+        r["absent"] = {ab: m for ab, m in missing.items() if m}   # 確認用(画面には渡さない)
+        r["content"] = round(max(0, r["content_base"] + pen), 1)
+        for ab in (r["home"], r["away"]):
+            if ab in lu:
+                starts.setdefault((r["season"], ab), []).append(lu[ab]["st"])
+    return records
+
+
 def build_game(e, start, season, strong, roster_cache):
     comp = e["competitions"][0]
     state = comp["status"]["type"]["state"]
@@ -1029,6 +1071,7 @@ def main():
                 archive[rec["id"]] = rec
         days.append({"date": d.isoformat(), "games": [g for g, _ in res]})
 
+    apply_absence(list(archive.values()))
     prev_records = load_json(PREV_SCORES, None) or load_json(ARCHIVE_PREV, [])
     # 余韻の測定(お気に入りは対象外)
     allrec = list(archive.values())
