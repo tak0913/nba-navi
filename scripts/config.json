@@ -100,7 +100,7 @@
   },
   "buzz": {
     "hall_min": 0.8,
-    "max_games_per_run": 150,
+    "max_games_per_run": 400,
     "_note": "余韻:同じ夜で一番騒がれたら+weight_up点、一番静かなら−weight_down点(静かでも見る価値は下がりにくいので下げ幅は小さく)。1日後・7日後・30日後の平均を使う。hall_min=殿堂入りに必要な30日後の余韻(0〜1)",
     "weight_up": 15,
     "weight_down": 5

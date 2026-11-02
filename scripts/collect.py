@@ -439,6 +439,8 @@ def score_record(e, start, summary, season, strong, label=None):
 
 
 # ---------- 余韻 ----------
+SIGNALS = ("news", "national", "yt", "clips", "bsky")   # ニュース/地元以外/フルハイライト/切り抜き/Bluesky
+STATS = {k: 0 for k in SIGNALS}                          # 取れた件数(ログ用。中身は出さない)
 def latest_buzz(r):
     """測れている分(1日後・7日後・30日後)の平均"""
     vals = [v for v in (r.get("buzz") or {}).values() if v is not None]
@@ -481,18 +483,29 @@ def measure_buzz(records, today, limit):
             for g in games:
                 try:
                     a, b = info[g["away"]], info[g["home"]]
-                    n_all, n_nat = B.news_signal(a, b, gd, day)
-                    yt = B.youtube_views(a, b, gd) if day <= 7 else None
-                    raw[g["id"]] = {"news": n_all, "national": n_nat, "yt": yt}
+                    raw[g["id"]] = {}
+                    def safe(f, *args):
+                        try:
+                            return f(*args)
+                        except Exception:
+                            return None
+                    n = safe(B.news_signal, a, b, gd, day)
+                    raw[g["id"]]["news"], raw[g["id"]]["national"] = n if n else (None, None)
+                    raw[g["id"]]["yt"] = safe(B.youtube_views, a, b, gd) if day <= 7 else None
+                    raw[g["id"]]["clips"] = safe(B.youtube_clip_views, a, b, gd) if day <= 7 else None
+                    s = gd + dt.timedelta(days=max(0, day - 1))
+                    raw[g["id"]]["bsky"] = safe(B.bluesky_engagement, a, b, s, gd + dt.timedelta(days=day + 2))
                 except Exception:
-                    raw[g["id"]] = {"news": None, "national": None, "yt": None}
+                    raw[g["id"]] = {k: None for k in SIGNALS}
                 time.sleep(0.4)
                 done += 1
-            pcts = {k: B.percentile_within({gid: v[k] for gid, v in raw.items()}) for k in ("news", "national", "yt")}
+            for k in SIGNALS:
+                STATS[k] += sum(1 for v in raw.values() if v.get(k) is not None)
+            pcts = {k: B.percentile_within({gid: v.get(k) for gid, v in raw.items()}) for k in SIGNALS}
             for g in games:
                 g.setdefault("buzz_raw", {})[key] = raw[g["id"]]
                 g.setdefault("buzz", {"d1": None, "d7": None, "d30": None})
-                g["buzz"][key] = B.combine([pcts[k].get(g["id"]) for k in ("news", "national", "yt")])
+                g["buzz"][key] = B.combine([pcts[k].get(g["id"]) for k in SIGNALS])
 
 
 # ---------- ランク(比べる範囲で決める) ----------
@@ -759,7 +772,7 @@ def main():
         dates = [start + dt.timedelta(days=k) for k in range((today - start).days)]
         archive = {}
         backfill(dates, season, strong, archive)
-    bstate = load_json(BUZZ_STATE, {})
+    bstate = {} if "--remeasure" in sys.argv else load_json(BUZZ_STATE, {})
     for r in archive.values():
         if r["id"] in bstate:
             d1, d7, d30 = bstate[r["id"]]
@@ -821,6 +834,7 @@ def main():
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
     open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))
     print(f"OK: {sum(len(d['games']) for d in days)} recent games, archive {len(records)} games")
+    print("buzz signals collected (counts only): " + ", ".join(f"{k}={v}" for k, v in STATS.items()))
 
 
 if __name__ == "__main__":

@@ -86,3 +86,57 @@ def percentile_within(values):
 def combine(pcts):
     vals = [v for v in pcts if v is not None]
     return round(statistics.median(vals), 3) if vals else None
+
+
+# ---------- SNS(v2) ----------
+def bluesky_engagement(team_a, team_b, start, end, max_pages=3):
+    """Blueskyで、期間内に両チーム名を含む投稿の 数・いいね・リポスト を合計する(登録不要の公開API)"""
+    base = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+    q = f'{team_a["nick"]} {team_b["nick"]}'
+    since = f"{start.isoformat()}T00:00:00Z"
+    until = f"{end.isoformat()}T00:00:00Z"
+    total, posts, cursor = 0, 0, None
+    for _ in range(max_pages):
+        url = f"{base}?q={urllib.parse.quote(q)}&since={since}&until={until}&limit=100&sort=top"
+        if cursor:
+            url += "&cursor=" + urllib.parse.quote(cursor)
+        d = json.loads(_get(url))
+        for p in d.get("posts", []):
+            posts += 1
+            total += 1 + p.get("likeCount", 0) + 2 * p.get("repostCount", 0) + p.get("quoteCount", 0)
+        cursor = d.get("cursor")
+        if not cursor:
+            break
+    return total
+
+
+def youtube_clip_views(team_a, team_b, game_date):
+    """1プレーだけの切り抜き動画(フルハイライト以外)の再生数合計。名場面があった試合ほど伸びる"""
+    q = f'{team_a["nick"]} {team_b["nick"]} {game_date.strftime("%B")} {game_date.day} {game_date.year}'
+    h = _get("https://www.youtube.com/results?search_query=" + urllib.parse.quote(q))
+    m = re.search(r"var ytInitialData = (\{.*?\});</script>", h)
+    if not m:
+        return None
+    vids = []
+
+    def walk(x):
+        if isinstance(x, dict):
+            if "videoRenderer" in x:
+                v = x["videoRenderer"]
+                title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", [])).lower()
+                pub = v.get("publishedTimeText", {}).get("simpleText", "")
+                vids.append((title, _views(v.get("viewCountText", {}).get("simpleText", "")), pub))
+            for y in x.values():
+                walk(y)
+        elif isinstance(x, list):
+            for y in x:
+                walk(y)
+    walk(json.loads(m.group(1)))
+    total = 0
+    skip = ("full game", "full highlights", "reaction", "live", "stream", "recap", "postgame", "press conference")
+    for title, v, pub in vids[:15]:
+        if "year" in pub or any(s in title for s in skip):
+            continue
+        if team_a["nick"].lower() in title or team_b["nick"].lower() in title:
+            total += v
+    return total
