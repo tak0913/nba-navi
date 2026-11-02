@@ -507,7 +507,10 @@ def latest_buzz(r):
 
 def moment_bonus(r):
     """名場面ボーナス:1日後・7日後に測った分の大きい方"""
-    return max([v for v in (r.get("moment") or []) if v is not None] or [0])
+    m = r.get("moment") or []
+    if len(m) != 3:          # 古い測り方(チームのいつもの伸びと比べない版)の結果は使わない
+        return 0
+    return max([v for v in m[:2] if v is not None] or [0])
 
 
 def fs(r):
@@ -579,13 +582,27 @@ def star_names(abbr):
     return [p["name"] for p in star_list(abbr)]
 
 
+CLIP_HIST = os.path.join(HERE, "clip_hist.json")   # 試合ごとの「一番伸びた切り抜き1本」の再生数(チームのいつもの伸びを知るため)
+
+
+def team_clip_base(hist, abbr, before, exclude):
+    """そのチームの、これより前の試合での「一番伸びた切り抜き1本」の再生数の真ん中の値。足りなければ None"""
+    import statistics
+    vals = [h["t"] for gid, h in hist.items()
+            if gid != exclude and h["d"] < before and abbr in (h["h"], h["a"]) and h.get("t")]
+    return statistics.median(vals) if len(vals) >= CFG["moment"]["min_samples"] else None
+
+
 def measure_moments(records, today):
-    """名場面:その試合で一番伸びた切り抜き動画1本の再生数を、同じ夜の試合と比べる。
-    1日後と7日後に1回ずつ測る(7日後の方が再生数が育っている)。
-    その夜の1位なら top_bonus 点、上位(high_pct)なら high_bonus 点。再生数が min_views 未満なら0点"""
+    """名場面:その試合で一番伸びた切り抜き動画1本が「そのチームにしては」どれだけ伸びたかを、同じ夜の試合と比べる。
+    いつもの伸び = 両チームの過去の試合の値(真ん中の値)の平均。過去の試合が少ないチームはその夜の真ん中の値を使う。
+    倍率がその夜の1位なら top_bonus 点、上位(high_pct)なら high_bonus 点。
+    ただし再生数が min_views 未満、または倍率が min_ratio 未満なら0点。1日後と7日後に1回ずつ測る"""
     import time
+    import statistics
     import buzz as B
     M = CFG["moment"]
+    hist = load_json(CLIP_HIST, {})
     info = team_info()
     nights = {}
     for r in records:
@@ -596,7 +613,7 @@ def measure_moments(records, today):
         for slot, day in ((0, 1), (1, 7)):
             if age < day or age > day + 3:      # 測れる時期を逃した夜は測らない(古い動画の数字は比べにくい)
                 continue
-            if all((g.get("moment") or [None, None])[slot] is not None for g in games):
+            if all(len(g.get("moment") or []) == 3 and g["moment"][slot] is not None for g in games):
                 continue
             tops = {}
             for g in games:
@@ -606,19 +623,37 @@ def measure_moments(records, today):
                 except Exception:
                     res = None
                 tops[g["id"]] = res[1] if res else None
+                if res:
+                    hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[1]}
                 time.sleep(0.4)
-            pct = B.percentile_within(tops)
-            n = sum(1 for v in tops.values() if v is not None)
+            got = [v for v in tops.values() if v]
+            night_mid = statistics.median(got) if got else None
+            ratios = {}
             for g in games:
-                m = g.setdefault("moment", [None, None])
-                v, p = tops.get(g["id"]), pct.get(g["id"])
+                v = tops[g["id"]]
+                if v is None:
+                    ratios[g["id"]] = None
+                    continue
+                bases = [team_clip_base(hist, ab, date, g["id"]) for ab in (g["home"], g["away"])]
+                bases = [b if b else night_mid for b in bases]
+                base = sum(bases) / 2 if all(bases) else None
+                ratios[g["id"]] = v / base if base else None
+            pct = B.percentile_within(ratios)
+            n = sum(1 for v in ratios.values() if v is not None)
+            for g in games:
+                m = g.get("moment") if len(g.get("moment") or []) == 3 else [None, None, 2]   # 3つ目=測り方の版
+                g["moment"] = m
+                v, ratio, p = tops.get(g["id"]), ratios.get(g["id"]), pct.get(g["id"])
+                if v is None or ratio is None:
+                    continue
                 bonus = 0
-                if v is not None and n >= M["min_games"] and v >= M["min_views"]:
+                if n >= M["min_games"] and v >= M["min_views"] and ratio >= M["min_ratio"]:
                     if p == 1.0:
                         bonus = M["top_bonus"]
                     elif p >= M["high_pct"]:
                         bonus = M["high_bonus"]
-                m[slot] = bonus if v is not None else None
+                m[slot] = bonus
+    json.dump(hist, open(CLIP_HIST, "w"), separators=(",", ":"))
 
 
 # ---------- ランク(比べる範囲で決める) ----------
@@ -947,7 +982,7 @@ def main():
         if r["id"] in bstate:
             v = bstate[r["id"]]
             r["buzz"] = {"d1": v[0], "d7": v[1], "d30": v[2]}
-            if len(v) > 3 and v[3]:
+            if len(v) > 3 and v[3] and len(v[3]) == 3:   # 古い版の名場面は捨てて測り直す
                 r["moment"] = v[3]
 
     # 通常の更新:直近3日を画面用に取り直し、終わった試合を記録に追加
