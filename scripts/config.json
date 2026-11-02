@@ -141,5 +141,13 @@
     "earliest_hour": 14,
     "latest_hour": 17,
     "max_lines": 8
+  },
+  "moment": {
+    "_note": "名場面ボーナス:その試合で一番伸びた切り抜き動画1本(KDのポスタライズみたいな1プレー)の再生数を同じ夜で比べる。1位ならtop_bonus点、上位high_pct以上ならhigh_bonus点。min_views未満の再生数や、試合がmin_games未満の夜は0点",
+    "top_bonus": 10,
+    "high_bonus": 5,
+    "high_pct": 0.8,
+    "min_views": 200000,
+    "min_games": 3
   }
 }

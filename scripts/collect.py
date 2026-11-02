@@ -505,13 +505,19 @@ def latest_buzz(r):
     return sum(vals) / len(vals) if vals else None
 
 
+def moment_bonus(r):
+    """名場面ボーナス:1日後・7日後に測った分の大きい方"""
+    return max([v for v in (r.get("moment") or []) if v is not None] or [0])
+
+
 def fs(r):
-    """最終点 = 試合の中身 + 余韻(同じ夜で真ん中なら±0、一番騒がれたら+重み、一番静かなら−重み)"""
+    """最終点 = 試合の中身 + 余韻(同じ夜で真ん中なら±0、一番騒がれたら+重み、一番静かなら−重み) + 名場面ボーナス"""
     b = latest_buzz(r)
+    base = r["content"] + moment_bonus(r)
     if b is None:
-        return r["content"]
+        return round(base, 1)
     w = CFG["buzz"]["weight_up"] if b >= 0.5 else CFG["buzz"]["weight_down"]
-    return round(r["content"] + w * (b - 0.5) * 2, 1)
+    return round(base + w * (b - 0.5) * 2, 1)
 
 
 def team_info():
@@ -550,9 +556,11 @@ def measure_buzz(records, today, limit):
                     n = safe(B.news_signal, a, b, gd, day)
                     raw[g["id"]]["news"], raw[g["id"]]["national"] = n if n else (None, None)
                     raw[g["id"]]["yt"] = safe(B.youtube_views, a, b, gd) if day <= 7 else None
-                    raw[g["id"]]["clips"] = safe(B.youtube_clip_views, a, b, gd) if day <= 7 else None
+                    na, nb = star_names(g["away"]), star_names(g["home"])
+                    clip = safe(B.youtube_clip_views, a, b, gd, na, nb) if day <= 7 else None
+                    raw[g["id"]]["clips"] = clip[0] if clip else None
                     s = gd + dt.timedelta(days=max(0, day - 1))
-                    raw[g["id"]]["bsky"] = safe(B.bluesky_engagement, a, b, s, gd + dt.timedelta(days=day + 2))
+                    raw[g["id"]]["bsky"] = safe(B.bluesky_engagement, a, b, s, gd + dt.timedelta(days=day + 2), 3, na, nb)
                 except Exception:
                     raw[g["id"]] = {k: None for k in SIGNALS}
                 time.sleep(0.4)
@@ -564,6 +572,53 @@ def measure_buzz(records, today, limit):
                 g.setdefault("buzz_raw", {})[key] = raw[g["id"]]
                 g.setdefault("buzz", {"d1": None, "d7": None, "d30": None})
                 g["buzz"][key] = B.combine([pcts[k].get(g["id"]) for k in SIGNALS])
+
+
+def star_names(abbr):
+    """余韻を探すときに使う主力選手の名前(エース表の順)"""
+    return [p["name"] for p in star_list(abbr)]
+
+
+def measure_moments(records, today):
+    """名場面:その試合で一番伸びた切り抜き動画1本の再生数を、同じ夜の試合と比べる。
+    1日後と7日後に1回ずつ測る(7日後の方が再生数が育っている)。
+    その夜の1位なら top_bonus 点、上位(high_pct)なら high_bonus 点。再生数が min_views 未満なら0点"""
+    import time
+    import buzz as B
+    M = CFG["moment"]
+    info = team_info()
+    nights = {}
+    for r in records:
+        nights.setdefault((r["date"], r["type"]), []).append(r)
+    for (date, typ), games in sorted(nights.items()):
+        gd = dt.date.fromisoformat(date)
+        age = (today - gd).days
+        for slot, day in ((0, 1), (1, 7)):
+            if age < day or age > day + 3:      # 測れる時期を逃した夜は測らない(古い動画の数字は比べにくい)
+                continue
+            if all((g.get("moment") or [None, None])[slot] is not None for g in games):
+                continue
+            tops = {}
+            for g in games:
+                try:
+                    res = B.youtube_clip_views(info[g["away"]], info[g["home"]], gd,
+                                               star_names(g["away"]), star_names(g["home"]))
+                except Exception:
+                    res = None
+                tops[g["id"]] = res[1] if res else None
+                time.sleep(0.4)
+            pct = B.percentile_within(tops)
+            n = sum(1 for v in tops.values() if v is not None)
+            for g in games:
+                m = g.setdefault("moment", [None, None])
+                v, p = tops.get(g["id"]), pct.get(g["id"])
+                bonus = 0
+                if v is not None and n >= M["min_games"] and v >= M["min_views"]:
+                    if p == 1.0:
+                        bonus = M["top_bonus"]
+                    elif p >= M["high_pct"]:
+                        bonus = M["high_bonus"]
+                m[slot] = bonus if v is not None else None
 
 
 # ---------- ランク(比べる範囲で決める) ----------
@@ -890,8 +945,10 @@ def main():
     bstate = {} if "--remeasure" in sys.argv else load_json(BUZZ_STATE, {})
     for r in archive.values():
         if r["id"] in bstate:
-            d1, d7, d30 = bstate[r["id"]]
-            r["buzz"] = {"d1": d1, "d7": d7, "d30": d30}
+            v = bstate[r["id"]]
+            r["buzz"] = {"d1": v[0], "d7": v[1], "d30": v[2]}
+            if len(v) > 3 and v[3]:
+                r["moment"] = v[3]
 
     # 通常の更新:直近3日を画面用に取り直し、終わった試合を記録に追加
     days, roster_cache = [], {}
@@ -907,6 +964,8 @@ def main():
                 rec["buzz"] = old.get("buzz", rec["buzz"])
                 if "buzz_raw" in old:
                     rec["buzz_raw"] = old["buzz_raw"]
+                if "moment" in old:
+                    rec["moment"] = old["moment"]
                 archive[rec["id"]] = rec
         days.append({"date": d.isoformat(), "games": [g for g, _ in res]})
 
@@ -915,6 +974,7 @@ def main():
     allrec = list(archive.values())
     if "--no-buzz" not in sys.argv:
         measure_buzz([r for r in allrec if not is_hidden(r)], today, CFG["buzz"]["max_games_per_run"])
+        measure_moments([r for r in allrec if not is_hidden(r)], today)
     # 隠している間のお気に入りの試合は、比べる相手にも入れない(順位の抜けからバレないように)
     for r in allrec:
         for k in ("tier", "ss_confirmed", "season_rank", "month_rank"):
@@ -925,8 +985,9 @@ def main():
     records.sort(key=lambda r: r["date"])
     arch = {r["id"]: r for r in records}
     json.dump(records, open(ARCHIVE, "w"), ensure_ascii=False)
-    bs = {r["id"]: [r["buzz"].get(k) for k in ("d1", "d7", "d30")] for r in records
-          if any(v is not None for v in (r.get("buzz") or {}).values())}
+    bs = {r["id"]: [r["buzz"].get(k) for k in ("d1", "d7", "d30")] + ([r["moment"]] if r.get("moment") else [])
+          for r in records
+          if any(v is not None for v in (r.get("buzz") or {}).values()) or r.get("moment")}
     json.dump(bs, open(BUZZ_STATE, "w"), separators=(",", ":"))
 
     # 画面用:全試合の「最終点」だけ渡す。推しを除いたランク付けは各自のスマホで計算する
@@ -936,7 +997,7 @@ def main():
     tinfo = team_info()
     data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(),
             "owner_favorites": CFG["favorites"], "fav_hide_hours": CFG.get("favorite_hide_hours", 24),
-            "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P,
+            "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P, "moment": CFG["moment"],
             "prev": prev_records if isinstance(prev_records, dict) else {},
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
             "topic_prefix": CFG["public_topic_prefix"],
