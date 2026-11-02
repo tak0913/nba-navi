@@ -1,0 +1,187 @@
+{
+ "month": "2026-10",
+ "opened_at": "2026-11-02T16:35+09:00",
+ "close_at": "2026-11-08T12:00+09:00",
+ "posted": false,
+ "closed": false,
+ "candidates": [
+  {
+   "key": "p:Luka Doncic",
+   "kind": "story",
+   "name": "Doncic(LAL)の大活躍×2",
+   "games": [
+    "401909861",
+    "401909880"
+   ],
+   "detail": [
+    {
+     "id": "401909861",
+     "date": "2026-10-26",
+     "away": "LAL",
+     "home": "UTAH",
+     "tier": "A"
+    },
+    {
+     "id": "401909880",
+     "date": "2026-10-28",
+     "away": "POR",
+     "home": "LAL",
+     "tier": "S"
+    }
+   ]
+  },
+  {
+   "key": "g:401909096",
+   "kind": "game",
+   "name": "10/24 HOU @ SA",
+   "games": [
+    "401909096"
+   ],
+   "detail": [
+    {
+     "id": "401909096",
+     "date": "2026-10-24",
+     "away": "HOU",
+     "home": "SA",
+     "tier": "A"
+    }
+   ]
+  },
+  {
+   "key": "g:401909859",
+   "kind": "game",
+   "name": "10/25 NO @ DEN",
+   "games": [
+    "401909859"
+   ],
+   "detail": [
+    {
+     "id": "401909859",
+     "date": "2026-10-25",
+     "away": "NO",
+     "home": "DEN",
+     "tier": "S"
+    }
+   ]
+  },
+  {
+   "key": "g:401909861",
+   "kind": "game",
+   "name": "10/26 LAL @ UTAH",
+   "games": [
+    "401909861"
+   ],
+   "detail": [
+    {
+     "id": "401909861",
+     "date": "2026-10-26",
+     "away": "LAL",
+     "home": "UTAH",
+     "tier": "A"
+    }
+   ]
+  },
+  {
+   "key": "g:401909869",
+   "kind": "game",
+   "name": "10/27 MIN @ CLE",
+   "games": [
+    "401909869"
+   ],
+   "detail": [
+    {
+     "id": "401909869",
+     "date": "2026-10-27",
+     "away": "MIN",
+     "home": "CLE",
+     "tier": "S"
+    }
+   ]
+  },
+  {
+   "key": "g:401909871",
+   "kind": "game",
+   "name": "10/27 DAL @ MIA",
+   "games": [
+    "401909871"
+   ],
+   "detail": [
+    {
+     "id": "401909871",
+     "date": "2026-10-27",
+     "away": "DAL",
+     "home": "MIA",
+     "tier": "S"
+    }
+   ]
+  },
+  {
+   "key": "g:401909877",
+   "kind": "game",
+   "name": "10/28 BKN @ BOS",
+   "games": [
+    "401909877"
+   ],
+   "detail": [
+    {
+     "id": "401909877",
+     "date": "2026-10-28",
+     "away": "BKN",
+     "home": "BOS",
+     "tier": "A"
+    }
+   ]
+  },
+  {
+   "key": "g:401909880",
+   "kind": "game",
+   "name": "10/28 POR @ LAL",
+   "games": [
+    "401909880"
+   ],
+   "detail": [
+    {
+     "id": "401909880",
+     "date": "2026-10-28",
+     "away": "POR",
+     "home": "LAL",
+     "tier": "S"
+    }
+   ]
+  },
+  {
+   "key": "g:401909888",
+   "kind": "game",
+   "name": "10/29 GS @ MIN",
+   "games": [
+    "401909888"
+   ],
+   "detail": [
+    {
+     "id": "401909888",
+     "date": "2026-10-29",
+     "away": "GS",
+     "home": "MIN",
+     "tier": "S"
+    }
+   ]
+  },
+  {
+   "key": "g:401909283",
+   "kind": "game",
+   "name": "10/31 HOU @ DAL",
+   "games": [
+    "401909283"
+   ],
+   "detail": [
+    {
+     "id": "401909283",
+     "date": "2026-10-31",
+     "away": "HOU",
+     "home": "DAL",
+     "tier": "S"
+    }
+   ]
+  }
+ ]
+}
