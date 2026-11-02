@@ -132,6 +132,11 @@ def bsky_say(sess, text, root=None, parent=None):
     token, did = sess
     rec = {"$type": "app.bsky.feed.post", "text": text, "langs": ["ja"],
            "createdAt": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")}
+    url = CFG.get("app_url")
+    if url and url in text:   # アプリのURLをタップできるリンクにする
+        st = text.encode("utf-8").index(url.encode("utf-8"))
+        rec["facets"] = [{"index": {"byteStart": st, "byteEnd": st + len(url.encode("utf-8"))},
+                          "features": [{"$type": "app.bsky.richtext.facet#link", "uri": url}]}]
     if root:
         rec["reply"] = {"root": root, "parent": parent or root}
     r = _post(BSKY + "com.atproto.repo.createRecord", {"repo": did, "collection": "app.bsky.feed.post", "record": rec}, token)

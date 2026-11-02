@@ -827,6 +827,21 @@ def notify_text(now, games_today, arch, favs=None):
     return "\n".join(lines)
 
 
+def bsky_daily(today, games_today, arch):
+    """公式Blueskyに1日1回流す「今日の見るべき試合」(対戦カードとランクだけ。スコア・勝敗は書かない)"""
+    favs = CFG["favorites"]
+    done = [g for g in games_today if g["completed"]]
+    recs = [arch[g["id"]] for g in done if g["id"] in arch and not is_hidden(arch[g["id"]], favs)]
+    ranked = sorted([r for r in recs if r.get("tier") in CFG["notify_ranks"]], key=lambda r: (-fs(r), -r["flow"]))
+    names = CFG["tier_names"]
+    lines = []
+    for r in ranked:
+        tag = r["tier"] + ("候補" if r["tier"] == "SS" and not r.get("ss_confirmed") else "")
+        up = f"・{r['up_from']}→{r['tier']}" if r.get("up_from") and r["up_from"] != r["tier"] else ""
+        lines.append(f"{tag}({names[r['tier']]}{up}) {r['away']} @ {r['home']}")
+    return {"date": today.isoformat(), "total": len(games_today), "done": len(done), "lines": lines}
+
+
 # ---------- メイン ----------
 def main():
     global NOW
@@ -927,6 +942,8 @@ def main():
 
     # 通知:持ち主用(config の favorites)
     open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))
+    # Bluesky の毎日の速報(持ち主の推しは24時間隠したまま)。投稿は bsky_daily.py
+    json.dump(bsky_daily(today, days[0]["games"], arch), open(os.path.join(HERE, "bsky_daily.json"), "w"), ensure_ascii=False)
     # 通知:みんな用。推しチームごとのチャンネル(推しなし + 30チーム)
     channels = {}
     for fav in [None] + sorted(tinfo):

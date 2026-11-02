@@ -58,13 +58,14 @@ jobs:
           if [ "${{ github.event.inputs.remeasure }}" = "yes" ]; then EXTRA="--remeasure"; fi
           OUT_DIR=../docs python collect.py --rebuild $EXTRA
 
-      - name: 月末の決選投票(Bluesky)
+      - name: 公式Bluesky(月末の決選投票・毎日の速報)
         env:
           BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
           BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
         run: |
           cd scripts
           python vote.py || echo "vote.py failed (続行)"
+          python bsky_daily.py || echo "bsky_daily.py failed (続行)"
 
       - name: 通知(ntfy)
         if: github.event.schedule == '40 23,2,5,8,11 * * *' || github.event.inputs.notify == 'yes'
@@ -104,6 +105,7 @@ jobs:
           git add -A scripts/votes 2>/dev/null || true
           git add scripts/upgrades.json 2>/dev/null || true
           git add scripts/suggestions.json 2>/dev/null || true
+          git add scripts/bsky_state.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
           git pull --rebase && git push
