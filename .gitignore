@@ -1,0 +1,6 @@
+docs/data.json
+scripts/data.json
+scripts/archive.json
+scripts/archive_prev.json
+scripts/notify.txt
+__pycache__/

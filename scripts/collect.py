@@ -1,0 +1,827 @@
+#!/usr/bin/env python3
+"""NBA観戦アプリ: データ収集 + 採点 + 記録の蓄積
+
+使い方:
+  python3 collect.py                      通常の更新(直近3日を取り直し、記録に追加、ランクを付け直す)
+  python3 collect.py --now 2026-11-02T12:00+09:00
+  python3 collect.py --backfill 2026-10-20 2026-11-01   日本の日付の範囲をさかのぼって記録に追加
+  python3 collect.py --backfill-prev      昨季(レギュラー+プレーオフ)を参考データとして記録
+
+入力:   stars.json, config.json, archive.json(なければ新規), archive_prev.json(昨季の参考データ)
+出力:   data.json(アプリ画面が読む), notify.txt(通知の文面), archive.json
+
+ネタバレ防止のため、このスクリプトは標準出力に試合の中身を一切出さない。
+"""
+import json, os, sys, re, unicodedata, urllib.request, datetime as dt
+from concurrent.futures import ThreadPoolExecutor
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+API = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+JST = dt.timezone(dt.timedelta(hours=9))
+
+CFG = json.load(open(os.path.join(HERE, "config.json")))
+STARS = json.load(open(os.path.join(HERE, "stars.json")))
+P, R, T = CFG["points"], CFG["rules"], CFG["tiers"]
+TIER_ORDER = ["other", "ace", "allstar", "mvp"]
+ARCHIVE = os.path.join(HERE, "archive.json")
+ARCHIVE_PREV = os.path.join(HERE, "archive_prev.json")
+PREV_SCORES = os.path.join(HERE, "prev_scores.json")   # 昨季の点数だけ(小さい版)
+BUZZ_STATE = os.path.join(HERE, "buzz_state.json")      # 余韻の測定結果(これだけは測った時点でしか取れないので保存)
+
+INJ_JA = {"Out": "欠場", "Doubtful": "出場厳しい", "Questionable": "出場微妙",
+          "Probable": "出場濃厚", "Day-To-Day": "様子見", "Suspension": "出場停止"}
+
+DETAIL_JA = [("Not Specified", "理由未発表"), ("Rest", "休養"), ("Illness", "体調不良"), ("Sprain", "捻挫"),
+    ("Surgery", "手術"), ("Strain", "肉離れ"), ("Soreness", "痛み"), ("Fracture", "骨折"), ("Contusion", "打撲"),
+    ("Inflammation", "炎症"), ("Bruise", "打撲"), ("Dislocated", "脱臼"), ("Spasms", "けいれん"),
+    ("Pinched Nerve", "神経の圧迫"), ("Plantar Fasciitis", "足底筋膜炎"), ("Heel", "かかと"), ("Ankle", "足首"),
+    ("Knee", "ひざ"), ("Back", "腰"), ("Hamstring", "太もも裏"), ("Foot", "足"), ("Hip", "股関節"),
+    ("Calf", "ふくらはぎ"), ("Wrist", "手首"), ("Shoulder", "肩"), ("Hand", "手"), ("Concussion", "脳しんとう"),
+    ("Groin", "足の付け根"), ("Achilles", "アキレス腱"), ("Thumb", "親指"), ("Finger", "指"), ("Elbow", "ひじ"),
+    ("Quadriceps", "太もも前"), ("Toe", "つま先"), ("Personal", "個人的な理由"), ("Neck", "首"), ("Rib", "肋骨"),
+    ("Abdominal", "腹部"), ("Oblique", "脇腹"), ("Shin", "すね"), ("Eye", "目"), ("Face", "顔"), ("Nose", "鼻"),
+    ("Leg", "脚"), ("Chest", "胸"), ("Head", "頭"), ("Lower", "下部"), ("Upper", "上部"), ("Tendinitis", "腱炎"),
+    ("Torn", "断裂"), ("Tear", "断裂"), ("Plantar Fascia", "足底"), ("Management", "管理"), ("Injury", "負傷"),
+    ("Suspension", "出場停止"), ("Other", ""), ("Undisclosed", "理由未発表"), ("Not Injury Related", "けが以外"),
+    ("Mcl", "内側側副靭帯"), ("Acl", "前十字靭帯"), ("Meniscus", "半月板"), ("Tendon", "腱"), ("Ligament", "靭帯"),
+    ("Sore", "痛み"), ("Tightness", "張り"), ("Surgery", "手術"), ("Rupture", "断裂"), ("Stress Reaction", "疲労性の損傷"),
+    ("Arm", "腕"), ("Forearm", "前腕"), ("Pelvis", "骨盤"), ("Lumbar", "腰椎"), ("Spine", "背骨"), ("Jaw", "あご"),
+    ("Mouth", "口"), ("Ear", "耳"), ("Patella", "膝蓋骨"), ("Coach's Decision", "監督判断")]
+
+SEASON_TYPE = {1: "pre", 2: "regular", 3: "playoff", 5: "playin"}
+
+
+# ---------- 小さな道具 ----------
+def detail_ja(s):
+    for en, ja in DETAIL_JA:
+        s = re.sub(rf"\b{en}\b", ja, s, flags=re.I)
+    s = s.replace("理由未発表", "") if len(s) > len("理由未発表") else s
+    return s.replace(" ", "")
+
+
+SIDE_JA = {"Left": "左", "Right": "右", "Bilateral": "両"}
+WD_JA = "月火水木金土日"
+
+
+def injury_reason(det):
+    """例:左足首捻挫 / 休養 / 出場停止"""
+    side = SIDE_JA.get(det.get("side", ""), "")
+    body = detail_ja(det.get("type", "") or "")
+    kind = detail_ja(det.get("detail", "") or "")
+    if body in ("出場停止", "Suspension"):
+        return "出場停止"
+    if body and kind == "理由未発表":
+        kind = ""
+    s = (side + body + kind).replace("Suspension", "出場停止")
+    return s or "理由未発表"
+
+
+def return_label(ret, base):
+    """ESPNの復帰見込み日から「あと何日」を作る"""
+    if not ret:
+        return "復帰時期は未発表"
+    try:
+        d = dt.date.fromisoformat(ret[:10])
+    except ValueError:
+        return "復帰時期は未発表"
+    n = (d - base).days
+    md = f"{d.month}/{d.day}({WD_JA[d.weekday()]})"
+    if n <= 0:
+        return "近日中に復帰の見込み"
+    if n >= 60:
+        return f"長期離脱(復帰見込み {md}・約{round(n / 30)}ヶ月)"
+    if n >= 14:
+        return f"復帰見込み {md}・約{round(n / 7)}週間"
+    return f"復帰見込み {md}・あと{n}日"
+
+
+def get(url, tries=3):
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.load(r)
+        except Exception:
+            if i == tries - 1:
+                raise
+
+
+def norm(name):
+    s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z]", "", s.lower())
+
+
+def clock_sec(txt):
+    txt = (txt or "0").strip()
+    if ":" in txt:
+        m, s = txt.split(":")
+        return int(m) * 60 + float(s)
+    try:
+        return float(txt)
+    except ValueError:
+        return 0.0
+
+
+def made_att(s):
+    try:
+        m, a = s.split("-")
+        return int(m), int(a)
+    except Exception:
+        return 0, 0
+
+
+def num(s):
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def jst(iso):
+    return dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(JST)
+
+
+# ---------- チームの今季成績(強み・レーティング) ----------
+STRENGTH_DEFS = [
+    ("avgOffensiveRebounds", "オフェンスリバウンド", True),
+    ("avgDefensiveRebounds", "ディフェンスリバウンド", True),
+    ("avgThreePointFieldGoalsMade", "3ポイントの数", True),
+    ("threePointFieldGoalPct", "3ポイントの成功率", True),
+    ("avgAssists", "パス回し(アシスト)", True),
+    ("avgSteals", "スティール", True),
+    ("avgBlocks", "ブロック", True),
+    ("avgTurnovers", "ミスの少なさ", False),
+    ("offRtg", "攻撃力(オフェンスレーティング)", True),
+]
+
+
+def team_season(team_id):
+    d = get(f"{API}/teams/{team_id}/statistics")
+    st = {}
+    for c in d["results"]["stats"]["categories"]:
+        for s in c["stats"]:
+            st[s["name"]] = s.get("value", 0) or 0
+    poss = st.get("avgFieldGoalsAttempted", 0) + 0.44 * st.get("avgFreeThrowsAttempted", 0) \
+        - st.get("avgOffensiveRebounds", 0) + st.get("avgTurnovers", 0)
+    st["offRtg"] = 100 * st.get("avgPoints", 0) / poss if poss else 0
+    return st
+
+
+def strengths(season):
+    out = {}
+    n = R["strength_top_n"]
+    for key, label, high in STRENGTH_DEFS:
+        ranked = sorted(season, key=lambda t: season[t].get(key, 0), reverse=high)
+        for i, t in enumerate(ranked[:n]):
+            out.setdefault(t, []).append(f"{label}(リーグ{i+1}位・今季)")
+    return out
+
+
+def load_league():
+    teams = get(f"{API}/teams")["sports"][0]["leagues"][0]["teams"]
+    tmap = {t["team"]["id"]: t["team"]["abbreviation"] for t in teams}
+    with ThreadPoolExecutor(8) as ex:
+        seas = dict(zip(tmap.values(), ex.map(team_season, tmap.keys())))
+    return seas, strengths(seas)
+
+
+# ---------- 試合の取得 ----------
+def events_for_jst_date(d):
+    """日本の日付 d に始まる試合(アメリカの日付だと前日と当日にまたがる)"""
+    evs = {}
+    for us in (d - dt.timedelta(days=1), d):
+        sb = get(f"{API}/scoreboard?dates={us.strftime('%Y%m%d')}")
+        for e in sb.get("events", []):
+            start = jst(e["date"])
+            if start.date() == d:
+                evs[e["id"]] = (e, start)
+    return sorted(evs.values(), key=lambda x: x[1])
+
+
+def star_list(abbr):
+    return STARS.get(abbr, [])
+
+
+def tier_of(abbr, name):
+    for p in star_list(abbr):
+        if norm(p["name"]) == norm(name):
+            return p["tier"]
+    return "other"
+
+
+def is_star(tier):
+    return tier in ("mvp", "allstar")
+
+
+# ---------- 採点(試合の中身) ----------
+def score_flow(plays, home_id):
+    """① 展開"""
+    flags = {"clutch": False, "overtime": False, "comeback20": False, "buzzer": False,
+             "last_possession": False, "clutch_stop": False}
+    if not plays:
+        return 0, flags
+    lo = hi = 0
+    prev_h = prev_a = 0
+    last_period = 0
+    for pl in plays:
+        per = pl.get("period", {}).get("number", 0)
+        last_period = max(last_period, per)
+        sec = clock_sec(pl.get("clock", {}).get("displayValue"))
+        h, a = int(pl.get("homeScore", prev_h)), int(pl.get("awayScore", prev_a))
+        diff = h - a
+        lo, hi = min(lo, diff), max(hi, diff)
+        late = (per == 4 and sec <= R["clutch_seconds"]) or per >= 5
+        if late and abs(diff) <= R["clutch_margin"]:
+            flags["clutch"] = True
+        # 最後の1プレーまでもつれた:第4Q・延長の残り24秒以内に3点差以内
+        final_secs = per >= 4 and sec <= R["last_possession_seconds"]
+        if final_secs and abs(prev_h - prev_a) <= R["last_possession_margin"]:
+            flags["last_possession"] = True
+        # 試合を決める守備:残り24秒以内、決まればワンポゼッション(and-one含む4点差以内)になる場面でのブロック・スティール
+        if final_secs and abs(prev_h - prev_a) <= R["clutch_stop_margin"]:
+            txt = (pl.get("text") or "").lower()
+            if " blocks " in txt or " steals " in txt or "steal" in pl.get("type", {}).get("text", "").lower():
+                flags["clutch_stop"] = True
+                flags.setdefault("_key_players", []).extend(
+                    x.get("athlete", {}).get("id") for x in pl.get("participants", []))
+        if pl.get("scoringPlay") and per >= 4 and sec <= R["buzzer_seconds"] \
+                and "free throw" not in pl.get("type", {}).get("text", "").lower():
+            scorer_home = pl.get("team", {}).get("id") == home_id
+            before = (prev_h - prev_a) if scorer_home else (prev_a - prev_h)
+            after = diff if scorer_home else -diff
+            if before < 0 <= after or (before == 0 and after > 0):
+                flags["buzzer"] = True
+        prev_h, prev_a = h, a
+    final = prev_h - prev_a
+    flags["overtime"] = last_period >= 5
+    if (final > 0 and lo <= -R["comeback_margin"]) or (final < 0 and hi >= R["comeback_margin"]):
+        flags["comeback20"] = True
+    pts = sum(P[k] for k, v in flags.items() if v and not k.startswith("_"))
+    return min(P["flow_cap"], pts), flags
+
+
+def garbage_points(plays):
+    """勝負が決まった後(第4Q残り5分以降で20点差以上)に取った点を選手ごとに数える"""
+    g = {}
+    prev_h = prev_a = 0
+    for pl in plays:
+        per = pl.get("period", {}).get("number", 0)
+        sec = clock_sec(pl.get("clock", {}).get("displayValue"))
+        h, a = int(pl.get("homeScore", prev_h)), int(pl.get("awayScore", prev_a))
+        if pl.get("scoringPlay") and per == 4 and sec <= R["garbage_seconds"] \
+                and abs(prev_h - prev_a) >= R["garbage_margin"]:
+            parts = pl.get("participants") or []
+            if parts:
+                pid = parts[0].get("athlete", {}).get("id")
+                g[pid] = g.get(pid, 0) + int(pl.get("scoreValue", 0))
+        prev_h, prev_a = h, a
+    return g
+
+
+def box_players(summary):
+    out = {}
+    for team in summary.get("boxscore", {}).get("players", []):
+        abbr = team["team"]["abbreviation"]
+        if not team.get("statistics"):
+            continue
+        st = team["statistics"][0]
+        keys = st["names"]
+        rows = []
+        for a in st["athletes"]:
+            vals = dict(zip(keys, a.get("stats") or []))
+            rows.append({"id": a["athlete"]["id"], "name": a["athlete"]["displayName"],
+                         "starter": a.get("starter", False), "dnp": a.get("didNotPlay", False) or not a.get("stats"),
+                         "reason": a.get("reason", ""), "stats": vals})
+        out[abbr] = rows
+    return out
+
+
+def promoted_mult(abbr, name, out_names):
+    """エースが欠場なら、次の選手の倍率を1段階上げる"""
+    lst = star_list(abbr)
+    tier = tier_of(abbr, name)
+    if len(lst) >= 2 and norm(lst[0]["name"]) in out_names and norm(lst[1]["name"]) == norm(name):
+        i = TIER_ORDER.index(tier)
+        tier = TIER_ORDER[min(i + 1, len(TIER_ORDER) - 1)]
+    return CFG["tier_mult"][tier]
+
+
+def score_stars(box, plays):
+    """② スターの活躍"""
+    garbage = garbage_points(plays)
+    total = 0.0
+    for abbr, rows in box.items():
+        out_names = {norm(r["name"]) for r in rows if r["dnp"]}
+        for r in rows:
+            if r["dnp"]:
+                continue
+            s = r["stats"]
+            pts = num(s.get("PTS")) - garbage.get(r["id"], 0)
+            fgm, fga = made_att(s.get("FG", "0-0"))
+            ftm, fta = made_att(s.get("FT", "0-0"))
+            denom = 2 * (fga + 0.44 * fta)
+            ts = num(s.get("PTS")) / denom if denom else 0
+            ev = []
+            if pts >= 40: ev.append(P["pts40"])
+            elif pts >= 30 and ts >= 0.70: ev.append(P["pts30_ts70"])
+            elif pts >= 25 and ts >= 0.75: ev.append(P["pts25_ts75"])
+            if num(s.get("BLK")) >= 5 or num(s.get("STL")) >= 4: ev.append(P["defense"])
+            cats = [num(s.get(k)) for k in ("PTS", "REB", "AST", "STL", "BLK")]
+            if sum(1 for c in cats if c >= 10) >= 3: ev.append(P["triple_double"])
+            if not ev:
+                continue
+            base = max(ev) + P["extra_event"] * (len(ev) - 1)
+            total += base * promoted_mult(abbr, r["name"], out_names)
+    return min(P["star_cap"], round(total, 1))
+
+
+def card_quality(teams, out_by_team, winning):
+    """③ カードの格"""
+    pts = 0
+    if all(winning.get(t["abbr"]) for t in teams):
+        pts += P["both_winning"]
+    def has_star(abbr):
+        return any(is_star(p["tier"]) and norm(p["name"]) not in out_by_team.get(abbr, set())
+                   for p in star_list(abbr))
+    if all(has_star(t["abbr"]) for t in teams):
+        pts += P["both_stars"]
+    for t in teams:
+        lst = star_list(t["abbr"])
+        outs = out_by_team.get(t["abbr"], set())
+        if len(lst) >= 2 and norm(lst[0]["name"]) in outs and norm(lst[1]["name"]) in outs:
+            pts += P["both_aces_out"]
+        elif lst and norm(lst[0]["name"]) in outs:
+            pts += P["ace_out"]
+    return max(0, min(P["card_cap"], pts))
+
+
+def game_offrtg(team_stats):
+    g = {s["name"]: s.get("displayValue", "0") for s in team_stats}
+    fgm, fga = made_att(g.get("fieldGoalsMade-fieldGoalsAttempted", "0-0"))
+    tpm, _ = made_att(g.get("threePointFieldGoalsMade-threePointFieldGoalsAttempted", "0-0"))
+    ftm, fta = made_att(g.get("freeThrowsMade-freeThrowsAttempted", "0-0"))
+    pts = 2 * fgm + tpm + ftm
+    poss = fga + 0.44 * fta - num(g.get("offensiveRebounds")) + num(g.get("totalTurnovers", g.get("turnovers")))
+    return 100 * pts / poss if poss else 0
+
+
+def team_anomaly(summary, season):
+    """④ 今日だけ異常(攻撃 or 守備がいつもより大きく良かった)"""
+    pts = 0
+    tms = summary.get("boxscore", {}).get("teams", [])
+    if len(tms) != 2:
+        return 0
+    rt = {t["team"]["abbreviation"]: game_offrtg(t.get("statistics", [])) for t in tms}
+    abbrs = list(rt)
+    for a, b in ((abbrs[0], abbrs[1]), (abbrs[1], abbrs[0])):
+        sa, sb = season.get(a, {}).get("offRtg", 0), season.get(b, {}).get("offRtg", 0)
+        if sa and rt[a] >= sa + R["anomaly_rating_diff"]:
+            pts += P["team_anomaly"]
+        if sb and rt[b] <= sb - R["anomaly_rating_diff"]:
+            pts += P["team_anomaly"]
+    return pts
+
+
+def expect_stars(card, clash):
+    v = card + clash
+    return 3 if v >= 20 else 2 if v >= 10 else 1
+
+
+def parse_teams(comp, completed):
+    teams, home_id = [], None
+    for c in sorted(comp["competitors"], key=lambda c: c["homeAway"] != "home"):
+        t = c["team"]
+        rec = next((r["summary"] for r in c.get("records", []) if r.get("type") == "total"), "0-0")
+        try:
+            w, l = (int(x) for x in rec.split("-")[:2])
+        except Exception:
+            w, l = 0, 0
+        if completed:  # 今日の結果を引いて「試合前の成績」にする
+            if c.get("winner"): w -= 1
+            else: l -= 1
+        teams.append({"abbr": t["abbreviation"], "id": t["id"], "name": t.get("displayName", ""),
+                      "short": t.get("shortDisplayName", t.get("name", "")), "homeAway": c["homeAway"],
+                      "_w": w, "_l": l, "_score": c.get("score")})
+        if c["homeAway"] == "home":
+            home_id = t["id"]
+    winning = {t["abbr"]: (t["_w"] + t["_l"] > 0 and t["_w"] >= t["_l"]) for t in teams}
+    return teams, home_id, winning
+
+
+def score_record(e, start, summary, season, strong, label=None):
+    """終わった試合1つの採点結果(記録用)。結果そのもの(スコア)は持たない"""
+    comp = e["competitions"][0]
+    teams, home_id, winning = parse_teams(comp, True)
+    plays = summary.get("plays", [])
+    box = box_players(summary)
+    out_post = {ab: {norm(r["name"]) for r in rows if r["dnp"]} for ab, rows in box.items()}
+    flow, flags = score_flow(plays, home_id)
+    stars = score_stars(box, plays)
+    # 試合を決めたプレーにスター(MVP級・AS級)が関わっていたら、スターの見せ場として加点
+    key = set(flags.get("_key_players", []))
+    if any(r["id"] in key and is_star(tier_of(ab, r["name"])) for ab, rows in box.items() for r in rows):
+        stars = min(P["star_cap"], stars + P["star_moment"])
+    card = card_quality(teams, out_post, winning)
+    clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
+    team = min(P["team_cap"], clash + team_anomaly(summary, season))
+    st = e.get("season", {})
+    rec = {
+        "id": e["id"], "date": start.date().isoformat(),
+        "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
+        "home": teams[0]["abbr"], "away": teams[1]["abbr"],
+        "content": round(flow + stars + card + team, 1), "flow": flow,
+        "end_utc": plays[-1].get("wallclock") if plays else None,
+        "buzz": {"d1": None, "d7": None, "d30": None},
+    }
+    if label:
+        rec["label"] = label
+    return rec
+
+
+# ---------- 余韻 ----------
+def latest_buzz(r):
+    """測れている分(1日後・7日後・30日後)の平均"""
+    vals = [v for v in (r.get("buzz") or {}).values() if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def fs(r):
+    """最終点 = 試合の中身 + 余韻(同じ夜で真ん中なら±0、一番騒がれたら+重み、一番静かなら−重み)"""
+    b = latest_buzz(r)
+    if b is None:
+        return r["content"]
+    w = CFG["buzz"]["weight_up"] if b >= 0.5 else CFG["buzz"]["weight_down"]
+    return round(r["content"] + w * (b - 0.5) * 2, 1)
+
+
+def team_info():
+    teams = get(f"{API}/teams")["sports"][0]["leagues"][0]["teams"]
+    return {t["team"]["abbreviation"]: {"full": t["team"]["displayName"], "nick": t["team"]["name"],
+                                        "local": [t["team"]["location"], t["team"]["name"]]} for t in teams}
+
+
+def measure_buzz(records, today, limit):
+    """1日後・7日後・30日後の余韻を、同じ夜の試合と比べて測る(古い順に limit 試合まで)"""
+    import time
+    import buzz as B
+    info = team_info()
+    nights = {}
+    for r in records:
+        nights.setdefault((r["date"], r["type"]), []).append(r)
+    done = 0
+    for (date, typ), games in sorted(nights.items()):
+        gd = dt.date.fromisoformat(date)
+        for day in (1, 7, 30):
+            key = f"d{day}"
+            if (today - gd).days < day or all((g.get("buzz") or {}).get(key) is not None for g in games):
+                continue
+            if done >= limit:
+                return
+            raw = {}
+            for g in games:
+                try:
+                    a, b = info[g["away"]], info[g["home"]]
+                    n_all, n_nat = B.news_signal(a, b, gd, day)
+                    yt = B.youtube_views(a, b, gd) if day <= 7 else None
+                    raw[g["id"]] = {"news": n_all, "national": n_nat, "yt": yt}
+                except Exception:
+                    raw[g["id"]] = {"news": None, "national": None, "yt": None}
+                time.sleep(0.4)
+                done += 1
+            pcts = {k: B.percentile_within({gid: v[k] for gid, v in raw.items()}) for k in ("news", "national", "yt")}
+            for g in games:
+                g.setdefault("buzz_raw", {})[key] = raw[g["id"]]
+                g.setdefault("buzz", {"d1": None, "d7": None, "d30": None})
+                g["buzz"][key] = B.combine([pcts[k].get(g["id"]) for k in ("news", "national", "yt")])
+
+
+# ---------- ランク(比べる範囲で決める) ----------
+def week_start(d):
+    return d - dt.timedelta(days=d.weekday())
+
+
+def assign_tiers(records, prev_records, today):
+    """
+    SS 殿堂:     中身の点数が高い + 今季トップ数試合(余韻で確定するまで「候補」)
+    S  名勝負:   中身の点数が高い + 今季の上位数%
+    A  好ゲーム: 中身の点数が高い + その月の上位
+    B  注目:     中身の点数が高い + その週の上位
+    C  一本:     中身の点数が一定以上
+    レギュラーシーズンとプレーオフは別々に比べる
+    """
+    by_pool = {}
+    for r in records:
+        by_pool.setdefault((r["season"], r["type"]), []).append(r)
+    prev_by_type = prev_records if isinstance(prev_records, dict) else {}
+    if isinstance(prev_records, list):
+        for r in prev_records:
+            prev_by_type.setdefault(r["type"], []).append(fs(r))
+
+    for (season, typ), pool in by_pool.items():
+        pool.sort(key=lambda r: r["date"])
+        first = dt.date.fromisoformat(pool[0]["date"])
+        helper = []  # シーズン開幕から1ヶ月だけ、昨季を比べる相手に混ぜる
+        if (today - first).days <= R["prev_season_helper_days"]:
+            helper = prev_by_type.get(typ, [])
+        season_scores = [fs(r) for r in pool] + helper
+        for r in pool:
+            d = dt.date.fromisoformat(r["date"])
+            s = fs(r)
+            month = [fs(x) for x in pool if x["date"][:7] == r["date"][:7]]
+            if len(month) < R["min_month_pool"]:
+                month = [fs(x) for x in pool if 0 <= (d - dt.date.fromisoformat(x["date"])).days < 30
+                         or x["date"][:7] == r["date"][:7]]
+            ws = week_start(d)
+            week = [fs(x) for x in pool if week_start(dt.date.fromisoformat(x["date"])) == ws]
+            if len(week) < R["min_week_pool"]:
+                week = [fs(x) for x in pool if 0 <= (d - dt.date.fromisoformat(x["date"])).days < 7
+                        or week_start(dt.date.fromisoformat(x["date"])) == ws]
+
+            def top_frac(arr):
+                return sum(1 for v in arr if v > s) / max(1, len(arr))
+            season_rank = 1 + sum(1 for v in season_scores if v > s)
+            r["season_rank"] = 1 + sum(1 for x in pool if fs(x) > s or (fs(x) == s and x["flow"] > r["flow"]))
+            r["month_rank"] = 1 + sum(1 for v in month if v > s)
+
+            tier = "-"
+            if s >= T["SS"]["min"] and season_rank <= T["SS"]["season_top_n"]:
+                tier = "SS"
+            elif s >= T["S"]["min"] and top_frac(season_scores) < T["S"]["season_top_frac"]:
+                tier = "S"
+            elif s >= T["A"]["min"] and top_frac(month) < T["A"]["month_top_frac"]:
+                tier = "A"
+            elif s >= T["B"]["min"] and top_frac(week) < T["B"]["week_top_frac"]:
+                tier = "B"
+            elif s >= T["C"]["min"]:
+                tier = "C"
+            r["tier"] = tier
+            # SS は余韻(民衆の声)で確定するまで「候補」
+            d30 = (r.get("buzz") or {}).get("d30")
+            r["ss_confirmed"] = bool(tier == "SS" and d30 is not None and d30 >= CFG["buzz"]["hall_min"])
+    return records
+
+
+# ---------- 画面用の1試合 ----------
+def build_game(e, start, season, strong, roster_cache):
+    comp = e["competitions"][0]
+    state = comp["status"]["type"]["state"]
+    completed = comp["status"]["type"].get("completed", False)
+    summary = get(f"{API}/summary?event={e['id']}")
+    teams, home_id, winning = parse_teams(comp, completed)
+
+    inj = {}
+    for blk in summary.get("injuries", []):
+        ab = blk["team"]["abbreviation"]
+        for i in blk.get("injuries", []):
+            nm = i.get("athlete", {}).get("displayName", "")
+            det = i.get("details", {}) or {}
+            # 注意:ESPNの欠場コメント(文章)には試合結果が書かれていることがあるので使わない。項目だけ使う
+            inj.setdefault(ab, {})[norm(nm)] = {
+                "status": INJ_JA.get(i.get("status"), i.get("status", "")),
+                "detail": injury_reason(det),
+                "return": return_label(det.get("returnDate"), start.date())}
+    out_pre = {ab: {k for k, v in d.items() if v["status"] in ("欠場", "出場停止")} for ab, d in inj.items()}
+
+    rosters = {}
+    for t in teams:
+        if t["id"] not in roster_cache:
+            roster_cache[t["id"]] = get(f"{API}/teams/{t['id']}/roster").get("athletes", [])
+        rows = []
+        for a in roster_cache[t["id"]]:
+            st = inj.get(t["abbr"], {}).get(norm(a["displayName"]))
+            rows.append({"name": a["displayName"], "jersey": a.get("jersey", ""),
+                         "pos": a.get("position", {}).get("abbreviation", ""),
+                         "status": st["status"] if st else "", "detail": st["detail"] if st else "",
+                         "ret": st["return"] if st else "",
+                         "tier": tier_of(t["abbr"], a["displayName"])})
+        order = {"mvp": 0, "allstar": 1, "ace": 2, "other": 3}
+        rows.sort(key=lambda r: (order[r["tier"]], r["name"]))
+        rosters[t["abbr"]] = rows
+
+    card_pre = card_quality(teams, out_pre, winning)
+    clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
+    st = e.get("season", {})
+    g = {
+        "id": e["id"], "date": start.date().isoformat(), "start": start.strftime("%H:%M"),
+        "type": SEASON_TYPE.get(st.get("type"), "other"),
+        "state": state, "completed": completed,
+        "venue": comp.get("venue", {}).get("fullName", ""),
+        "teams": [{k: v for k, v in t.items() if not k.startswith("_")} for t in teams],
+        "rosters": rosters,
+        "strengths": {t["abbr"]: strong.get(t["abbr"], []) for t in teams},
+        "expect": expect_stars(card_pre, clash),
+        "result": None,
+    }
+    rec = None
+    if completed:
+        rec = score_record(e, start, summary, season, strong)
+        box = box_players(summary)
+        lines = {}
+        for c in comp["competitors"]:
+            lines[c["team"]["abbreviation"]] = [int(num(x.get("value", x.get("displayValue", 0)))) for x in c.get("linescores", [])]
+        g["result"] = {
+            "score": {t["abbr"]: t["_score"] for t in teams},
+            "linescores": lines,
+            "box": {ab: [{"name": r["name"], "starter": r["starter"], "dnp": r["dnp"], "reason": r["reason"],
+                          **{k: r["stats"].get(k, "") for k in ("MIN", "PTS", "REB", "AST", "STL", "BLK", "FG", "3PT", "FT", "TO", "+/-")}}
+                         for r in rows] for ab, rows in box.items()},
+        }
+    return g, rec
+
+
+# ---------- 記録の読み書き ----------
+def load_json(path, default):
+    try:
+        return json.load(open(path))
+    except Exception:
+        return default
+
+
+def is_fav(rec):
+    return rec["home"] in CFG["favorites"] or rec["away"] in CFG["favorites"]
+
+
+NOW = dt.datetime.now(JST)
+
+
+def is_hidden(rec):
+    """お気に入りの試合は、終わってから24時間は判定・比較・通知から隠す。24時間たったら表に入れる"""
+    if not is_fav(rec):
+        return False
+    end = rec.get("end_utc")
+    if not end:
+        return True
+    return NOW < jst(end) + dt.timedelta(hours=CFG.get("favorite_hide_hours", 24))
+
+
+def backfill(dates, season, strong, archive, label=None):
+    def one(d):
+        out = []
+        for e, start in events_for_jst_date(d):
+            comp = e["competitions"][0]
+            if not comp["status"]["type"].get("completed"):
+                continue
+            if SEASON_TYPE.get(e.get("season", {}).get("type")) in ("pre", None):
+                continue
+            try:
+                summary = get(f"{API}/summary?event={e['id']}")
+                out.append(score_record(e, start, summary, season, strong, label))
+            except Exception:
+                pass
+        return out
+    with ThreadPoolExecutor(8) as ex:
+        for recs in ex.map(one, dates):
+            for r in recs:
+                old = archive.get(r["id"], {})
+                r["buzz"] = old.get("buzz", r["buzz"])
+                if "buzz_raw" in old:
+                    r["buzz_raw"] = old["buzz_raw"]
+                archive[r["id"]] = r
+
+
+def season_dates(any_us_date):
+    """ESPNのカレンダーからシーズン中の試合日(アメリカの日付)を取る"""
+    sb = get(f"{API}/scoreboard?dates={any_us_date}")
+    cal = sb["leagues"][0].get("calendar", [])
+    ds = set()
+    for c in cal:
+        s = c if isinstance(c, str) else c.get("startDate")
+        if s:
+            ds.add(jst(s).date())
+    return sorted(ds)
+
+
+# ---------- 通知文 ----------
+def notify_text(now, games_today, arch):
+    slots = CFG["notify_slots_jst"]
+    cur = now.hour * 60 + now.minute
+    slot = min(slots, key=lambda h: abs(h * 60 - cur))
+    prev = [h for h in slots if h < slot]
+    if prev:
+        prev_t = now.replace(hour=max(prev), minute=0, second=0, microsecond=0)
+    else:
+        prev_t = (now - dt.timedelta(days=1)).replace(hour=slots[-1], minute=0, second=0, microsecond=0)
+    done = [g for g in games_today if g["completed"]]
+    lines = [f"【{slot}:00】本日の注目試合"]
+    recs = [arch[g["id"]] for g in done if g["id"] in arch]
+    ranked = sorted([r for r in recs if not is_hidden(r) and r.get("tier") in CFG["notify_ranks"]],
+                    key=lambda r: (-fs(r), -r["flow"]))
+    names = CFG["tier_names"]
+    for i, r in enumerate(ranked, 1):
+        new = ""
+        if r.get("end_utc") and jst(r["end_utc"]) > prev_t:
+            new = " NEW"
+        tag = r["tier"] + ("候補" if r["tier"] == "SS" and not r.get("ss_confirmed") else "")
+        lines.append(f"{i}位 {tag}({names[r['tier']]}) {r['away']} @ {r['home']}{new}")
+    if not ranked:
+        lines.append("SS〜Aランクの試合はまだなし")
+    if any(g["teams"][0]["abbr"] in CFG["favorites"] or g["teams"][1]["abbr"] in CFG["favorites"] for g in games_today):
+        lines.append("お気に入り:対象外")
+    lines.append(f"終了 {len(done)}/{len(games_today)}試合")
+    return "\n".join(lines)
+
+
+# ---------- メイン ----------
+def main():
+    global NOW
+    now = dt.datetime.now(JST)
+    if "--now" in sys.argv:
+        now = dt.datetime.fromisoformat(sys.argv[sys.argv.index("--now") + 1]).astimezone(JST)
+    NOW = now
+    today = now.date()
+    season, strong = load_league()
+    archive = {r["id"]: r for r in load_json(ARCHIVE, [])}
+
+    if "--backfill" in sys.argv:
+        i = sys.argv.index("--backfill")
+        a, b = dt.date.fromisoformat(sys.argv[i + 1]), dt.date.fromisoformat(sys.argv[i + 2])
+        dates = [a + dt.timedelta(days=k) for k in range((b - a).days + 1)]
+        backfill(dates, season, strong, archive)
+        json.dump(sorted(archive.values(), key=lambda r: r["date"]), open(ARCHIVE, "w"), ensure_ascii=False)
+        print(f"OK: archive has {len(archive)} games")
+        return
+
+    if "--backfill-prev" in sys.argv:
+        prev = {}
+        dates = [d for d in season_dates("20260101") if d <= dt.date(2026, 7, 1)]
+        backfill(dates, season, strong, prev, label="昨季・参考")
+        json.dump(sorted(prev.values(), key=lambda r: r["date"]), open(ARCHIVE_PREV, "w"), ensure_ascii=False)
+        ps = {}
+        for r in prev.values():
+            ps.setdefault(r["type"], []).append(int(round(r["content"])))
+        json.dump({k: sorted(v) for k, v in ps.items()}, open(PREV_SCORES, "w"), separators=(",", ":"))
+        print(f"OK: prev-season reference has {len(prev)} games")
+        return
+
+    # 記録は毎回作り直す(試合の中身の点数は何度計算しても同じになる)。余韻だけは保存してあるものを使う
+    if "--rebuild" in sys.argv:
+        start = min(d for d in season_dates(today.strftime("%Y%m%d")))
+        dates = [start + dt.timedelta(days=k) for k in range((today - start).days)]
+        archive = {}
+        backfill(dates, season, strong, archive)
+    bstate = load_json(BUZZ_STATE, {})
+    for r in archive.values():
+        if r["id"] in bstate:
+            d1, d7, d30 = bstate[r["id"]]
+            r["buzz"] = {"d1": d1, "d7": d7, "d30": d30}
+
+    # 通常の更新:直近3日を画面用に取り直し、終わった試合を記録に追加
+    days, roster_cache = [], {}
+    for back in (0, 1, 2):
+        d = today - dt.timedelta(days=back)
+        evs = [x for x in events_for_jst_date(d)
+               if SEASON_TYPE.get(x[0].get("season", {}).get("type")) != "pre"]
+        with ThreadPoolExecutor(6) as ex:
+            res = list(ex.map(lambda es: build_game(es[0], es[1], season, strong, roster_cache), evs))
+        for g, rec in res:
+            if rec:
+                old = archive.get(rec["id"], {})
+                rec["buzz"] = old.get("buzz", rec["buzz"])
+                if "buzz_raw" in old:
+                    rec["buzz_raw"] = old["buzz_raw"]
+                archive[rec["id"]] = rec
+        days.append({"date": d.isoformat(), "games": [g for g, _ in res]})
+
+    prev_records = load_json(PREV_SCORES, None) or load_json(ARCHIVE_PREV, [])
+    # 余韻の測定(お気に入りは対象外)
+    allrec = list(archive.values())
+    if "--no-buzz" not in sys.argv:
+        measure_buzz([r for r in allrec if not is_hidden(r)], today, CFG["buzz"]["max_games_per_run"])
+    # 隠している間のお気に入りの試合は、比べる相手にも入れない(順位の抜けからバレないように)
+    for r in allrec:
+        for k in ("tier", "ss_confirmed", "season_rank", "month_rank"):
+            r.pop(k, None)
+    assign_tiers([r for r in allrec if not is_hidden(r)], prev_records, today)
+    records = allrec
+    records.sort(key=lambda r: r["date"])
+    arch = {r["id"]: r for r in records}
+    json.dump(records, open(ARCHIVE, "w"), ensure_ascii=False)
+    bs = {r["id"]: [r["buzz"].get(k) for k in ("d1", "d7", "d30")] for r in records
+          if any(v is not None for v in (r.get("buzz") or {}).values())}
+    json.dump(bs, open(BUZZ_STATE, "w"), separators=(",", ":"))
+
+    # 画面用:記録からは中身の内訳を外し、ランクと順位だけ渡す
+    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "tier", "ss_confirmed",
+                                    "season_rank", "month_rank", "flow")} | {"score": fs(r), "buzz_done": [k for k, v in (r.get("buzz") or {}).items() if v is not None]}
+           for r in records if not is_hidden(r)] 
+    for day in days:
+        for g in day["games"]:
+            r = arch.get(g["id"])
+            fav = g["teams"][0]["abbr"] in CFG["favorites"] or g["teams"][1]["abbr"] in CFG["favorites"]
+            g["favorite"] = fav and (r is None or is_hidden(r))
+            g["fav_team"] = fav
+            if r and not g["favorite"]:
+                g["tier"], g["ss_confirmed"] = r["tier"], r["ss_confirmed"]
+                g["season_rank"], g["month_rank"] = r["season_rank"], r["month_rank"]
+    data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(),
+            "favorites": CFG["favorites"], "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"],
+            "tiers": T, "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
+            "days": days, "archive": pub}
+    out_dir = os.environ.get("OUT_DIR", HERE)
+    json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
+    open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))
+    print(f"OK: {sum(len(d['games']) for d in days)} recent games, archive {len(records)} games")
+
+
+if __name__ == "__main__":
+    main()

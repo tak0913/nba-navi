@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NBA 観戦ナビ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="観戦ナビ">
+<meta name="theme-color" content="#0f1115">
+<style>
+:root{
+  --bg:#0f1115; --panel:#181b22; --panel2:#20242d; --line:#2b303b; --text:#e9ecf1; --sub:#9aa3b2;
+  --ss:#f5c542; --s:#ff6b4a; --a:#4aa8ff; --b:#7bd389; --c:#8a93a3;
+  --out:#ff5a5a; --q:#ffb547; --p:#7bd389;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:15px;line-height:1.5}
+header{position:sticky;top:0;padding-top:env(safe-area-inset-top);z-index:5;background:rgba(15,17,21,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:baseline;justify-content:space-between;padding:12px 16px 4px}
+.top h1{font-size:18px;margin:0;letter-spacing:.02em}
+.top .upd{font-size:11px;color:var(--sub)}
+nav{display:flex;gap:4px;padding:6px 10px 10px;overflow-x:auto}
+nav button{flex:none;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px}
+nav button.on{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:600}
+main{padding:12px 12px 60px;max-width:720px;margin:0 auto}
+.days{display:flex;gap:6px;margin-bottom:12px}
+.days button{flex:1;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-size:13px}
+.days button.on{border-color:var(--text);color:var(--text);font-weight:600}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.card .head{padding:12px 14px;display:flex;gap:12px;align-items:center;cursor:pointer}
+.badge{flex:none;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:18px;border:2px solid currentColor}
+.badge.SS{color:var(--ss);box-shadow:0 0 14px rgba(245,197,66,.35)} .badge.S{color:var(--s)} .badge.A{color:var(--a)} .badge.B{color:var(--b)} .badge.C{color:var(--c)}
+.badge.none{color:#4a505c;font-size:13px} .badge.exp{color:var(--sub);font-size:12px;line-height:1.1;text-align:center}
+.badge.fav{color:#c792ea;font-size:11px}
+.match{flex:1;min-width:0}
+.match .teams{font-weight:700;font-size:16px}
+.match .teams .at{color:var(--sub);font-weight:400;margin:0 6px}
+.match .meta{font-size:12px;color:var(--sub)}
+.state{flex:none;font-size:11px;padding:3px 8px;border-radius:999px;background:var(--panel2);color:var(--sub)}
+.state.in{color:#ff6b4a}
+.quick{padding:0 14px 12px;font-size:13px;display:flex;flex-direction:column;gap:3px}
+.quick .row{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline}
+.quick .tm{color:var(--sub);width:42px;flex:none}
+.chip{display:inline-block;font-size:12px;padding:1px 7px;border-radius:6px;background:var(--panel2)}
+.chip.out{color:var(--out)} .chip.q{color:var(--q)} .chip.p{color:var(--p)}
+.body{display:none;border-top:1px solid var(--line);padding:12px 14px}
+.card.open .body{display:block}
+h3{font-size:13px;color:var(--sub);margin:14px 0 6px;font-weight:600}
+h3:first-child{margin-top:0}
+.rosters{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.roster .ttl{font-weight:700;margin-bottom:4px}
+.roster .ttl small{color:var(--sub);font-weight:400}
+.pl{font-size:13px;padding:3px 0;border-bottom:1px dashed var(--line)}
+.pl .no{color:var(--sub);display:inline-block;width:24px}
+.pl .tier{white-space:nowrap;font-size:10px;padding:0 4px;border-radius:4px;margin-left:4px;vertical-align:1px}
+.tier.mvp{background:var(--ss);color:#000} .tier.allstar{background:var(--a);color:#000} .tier.ace{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+.pl .st{display:block;font-size:11px;margin-left:24px}
+.str{font-size:13px;margin:2px 0}
+.reveal{margin-top:14px}
+.btn{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:600}
+.btn.warn{border-color:#ff6b4a;color:#ff6b4a}
+.confirm{display:none;margin-top:8px;padding:12px;border-radius:10px;background:#2a1714;border:1px solid #5a2a22;font-size:14px}
+.confirm .acts{display:flex;gap:8px;margin-top:10px}
+.confirm .acts button{flex:1;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:14px}
+.yes{background:#ff6b4a;color:#000} .no{background:var(--panel2);color:var(--text)}
+.result{display:none;margin-top:12px}
+.final{display:flex;justify-content:center;gap:18px;align-items:center;font-size:28px;font-weight:800;margin:6px 0 10px}
+.final span small{display:block;font-size:12px;color:var(--sub);font-weight:400;text-align:center}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:4px 3px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal}
+th{color:var(--sub);font-weight:500}
+.boxwrap{overflow-x:auto;margin-bottom:10px}
+.dnp{color:var(--sub)}
+.empty{color:var(--sub);text-align:center;padding:40px 0}
+.list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.list .item .badge{width:40px;height:40px;font-size:16px}
+.list .item .d{font-size:12px;color:var(--sub)}
+.legend{font-size:12px;color:var(--sub);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.legend b{color:var(--text)}
+.aces .team{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.aces .team .n{font-weight:700;margin-bottom:4px}
+.aces .team .p{font-size:13px;margin:2px 0}
+.fav-on{color:#c792ea}
+</style>
+</head>
+<body>
+<header>
+  <div class="top"><h1>🏀 NBA 観戦ナビ</h1><span class="upd" id="upd"></span></div>
+  <nav id="nav">
+    <button data-v="day" class="on">試合</button>
+    <button data-v="tiers">ティア表</button>
+    <button data-v="hall">殿堂</button>
+    <button data-v="aces">エース表</button>
+    <button data-v="help">ランクの見方</button>
+  </nav>
+</header>
+<main id="main"><div class="empty">読み込み中…</div></main>
+
+<script>
+let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
+const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
+const TIER_JA={mvp:"MVP級",allstar:"オールスター級",ace:"エース"};
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const wd=d=>["日","月","火","水","木","金","土"][new Date(d+"T00:00:00Z").getUTCDay()];
+const md=d=>{const [y,m,dd]=d.split("-");return `${+m}/${+dd}(${wd(d)})`};
+
+function chipClass(s){return s==="欠場"||s==="出場停止"?"out":s==="出場微妙"||s==="出場厳しい"||s==="様子見"?"q":s==="出場濃厚"?"p":""}
+
+function badge(g){
+  if(g.favorite) return `<div class="badge fav">お気に入り</div>`;
+  if(g.completed){ return tierBadge(g.tier,g.ss_confirmed); }
+  return `<div class="badge exp">期待度<br>${"★".repeat(g.expect)}${"☆".repeat(3-g.expect)}</div>`;
+}
+function tierBadge(t,conf,small){
+  if(!t||t==="-") return `<div class="badge none"${small?' style="width:40px;height:40px"':""}>―</div>`;
+  const cand=t==="SS"&&!conf;
+  return `<div class="badge ${t}"${small?' style="width:40px;height:40px;font-size:16px"':""}>${t}${cand?'<small style="display:block;font-size:9px;font-weight:600;margin-top:-4px">候補</small>':""}</div>`;
+}
+function tierLine(g){
+  if(!g.completed||g.favorite||!g.tier) return "";
+  const nm=DATA.tier_names[g.tier]||"";
+  return `<div class="meta" style="color:var(--text)">${nm}${g.season_rank?`・今季${g.season_rank}位`:""}</div>`;
+}
+function stateLabel(g){
+  if(g.completed) return `<span class="state">終了</span>`;
+  if(g.state==="in") return `<span class="state in">試合中</span>`;
+  return `<span class="state">${g.start} 開始</span>`;
+}
+function quick(g){
+  const rows=g.teams.slice().reverse().map(t=>{
+    const ps=(g.rosters[t.abbr]||[]).filter(p=>p.status&&p.status!=="出場濃厚");
+    const chips=ps.length?ps.map(p=>`<span class="chip ${chipClass(p.status)}">${esc(p.name)}:${p.status}${p.detail?`(${esc(p.detail)})`:""}${p.ret?`<small style="display:block;color:var(--sub);font-size:11px">${esc(p.ret)}</small>`:""}</span>`).join(""):`<span class="chip">欠場情報なし</span>`;
+    return `<div class="row"><span class="tm">${t.abbr}</span>${chips}</div>`;
+  });
+  return `<div class="quick">${rows.join("")}</div>`;
+}
+function roster(g,t){
+  const rows=(g.rosters[t.abbr]||[]).map(p=>`<div class="pl"><span class="no">${esc(p.jersey)}</span>${esc(p.name)} <small style="color:var(--sub)">${esc(p.pos)}</small>${p.tier!=="other"?`<span class="tier ${p.tier}">${TIER_SHORT[p.tier]}</span>`:""}${p.status?`<span class="st chip ${chipClass(p.status)}">${p.status}${p.detail?"・"+esc(p.detail):""}${p.ret?"<br>"+esc(p.ret):""}</span>`:""}</div>`).join("");
+  return `<div class="roster"><div class="ttl">${esc(t.short)} <small>${t.homeAway==="home"?"ホーム":"アウェイ"}</small></div>${rows}</div>`;
+}
+function boxTable(rows){
+  const head=`<tr><th>選手</th><th>分</th><th>点</th><th>リバ</th><th>アシ</th><th>スティ</th><th>ブロ</th><th>FG</th><th>3P</th><th>FT</th><th>+/-</th></tr>`;
+  const body=rows.map(r=>r.dnp?`<tr class="dnp"><td>${esc(r.name)}</td><td colspan="10" style="text-align:left">出場なし${r.reason?"("+esc(r.reason)+")":""}</td></tr>`:
+    `<tr><td>${r.starter?"<b>":""}${esc(r.name)}${r.starter?"</b>":""}</td><td>${r.MIN}</td><td>${r.PTS}</td><td>${r.REB}</td><td>${r.AST}</td><td>${r.STL}</td><td>${r.BLK}</td><td>${r.FG}</td><td>${r["3PT"]}</td><td>${r.FT}</td><td>${r["+/-"]}</td></tr>`).join("");
+  return `<div class="boxwrap"><table>${head}${body}</table></div>`;
+}
+function resultHTML(g){
+  const r=g.result, [h,a]=g.teams;
+  const per=(r.linescores[a.abbr]||[]).map((_,i)=>i<4?`${i+1}Q`:`OT${i-3}`);
+  const ls=`<div class="boxwrap"><table><tr><th></th>${per.map(p=>`<th>${p}</th>`).join("")}<th>計</th></tr>${[a,h].map(t=>`<tr><td>${t.abbr}</td>${(r.linescores[t.abbr]||[]).map(v=>`<td>${v}</td>`).join("")}<td><b>${r.score[t.abbr]}</b></td></tr>`).join("")}</table></div>`;
+  return `<div class="final"><span>${r.score[a.abbr]}<small>${a.abbr}</small></span><span style="color:var(--sub);font-size:18px">-</span><span>${r.score[h.abbr]}<small>${h.abbr}</small></span></div>
+    <h3>クォーターごとの得点</h3>${ls}
+    ${[a,h].map(t=>`<h3>${esc(t.name)}</h3>${boxTable(r.box[t.abbr]||[])}`).join("")}`;
+}
+function gameCard(g){
+  const [h,a]=g.teams, seen=store.get("seen_"+g.id)==="1";
+  const str=g.teams.slice().reverse().map(t=>`<div class="str"><b>${t.abbr}</b>:${(g.strengths[t.abbr]||[]).length?g.strengths[t.abbr].map(esc).join("、"):"目立った強みなし(今季)"}</div>`).join("");
+  let rev="";
+  if(g.completed&&g.result){
+    rev=`<div class="reveal">
+      <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">結果とスタッツを見る(ネタバレ注意)</button>
+      <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div>
+      <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
+  } else if(!g.completed){
+    rev=`<div class="reveal"><button class="btn" disabled style="opacity:.5">試合が終わったら結果を見られるよ</button></div>`;
+  }
+  return `<div class="card" id="g_${g.id}">
+    <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
+      <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span>${esc(h.abbr)}</div>
+      <div class="meta">${g.start} 開始・${esc(h.short)}のホーム(${esc(g.venue)})</div>${tierLine(g)}</div>${stateLabel(g)}</div>
+    ${quick(g)}
+    <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
+      <h3>チームの強み</h3>${str}${rev}</div></div>`;
+}
+
+function renderDay(){
+  const days=DATA.days;
+  const tabs=`<div class="days">${days.map((d,i)=>`<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}">${i===0?"今日":i===1?"昨日":"おととい"} ${md(d.date)}</button>`).join("")}</div>`;
+  const gs=days[dayIdx].games;
+  return tabs+(gs.length?gs.map(gameCard).join(""):`<div class="empty">この日は試合なし</div>`);
+}
+function weekKey(d){const x=new Date(d+"T00:00:00Z");const w=(x.getUTCDay()+6)%7;x.setUTCDate(x.getUTCDate()-w);return x.toISOString().slice(0,10)}
+function periodsFor(list){
+  if(scope==="week") return [...new Set(list.map(r=>weekKey(r.date)))].sort().reverse();
+  if(scope==="month") return [...new Set(list.map(r=>r.date.slice(0,7)))].sort().reverse();
+  return [];
+}
+function periodLabel(p){
+  if(scope==="week"){const e=new Date(p+"T00:00:00Z");e.setUTCDate(e.getUTCDate()+6);return `${md(p)}〜${md(e.toISOString().slice(0,10))}`}
+  if(scope==="month"){const [y,m]=p.split("-");return `${y}年${+m}月`}
+  return "";
+}
+function renderTiers(){
+  const all=DATA.archive.filter(r=>stype==="regular"?r.type==="regular":(r.type==="playoff"||r.type==="playin"));
+  const seasons=[...new Set(all.map(r=>r.season))].sort().reverse(); const cur=seasons[0];
+  let list=all.filter(r=>r.season===cur);
+  const sc=[["3days","直近3日"],["week","週"],["month","月"],["season","シーズン"]];
+  let head=`<div class="days">${sc.map(([k,l])=>`<button data-act="scope" data-k="${k}" class="${scope===k?"on":""}">${l}</button>`).join("")}</div>
+   <div class="days">${[["regular","レギュラーシーズン"],["playoff","プレーオフ"]].map(([k,l])=>`<button data-act="stype" data-k="${k}" class="${stype===k?"on":""}">${l}</button>`).join("")}</div>`;
+  if(scope==="3days"){const ds=DATA.days.map(d=>d.date);list=list.filter(r=>ds.includes(r.date))}
+  const ps=periodsFor(list);
+  if(ps.length){ if(!ps.includes(period)) period=ps[0];
+    head+=`<div class="days" style="overflow-x:auto">${ps.slice(0,8).map(p=>`<button data-act="period" data-k="${p}" class="${p===period?"on":""}" style="flex:none;padding:8px 10px">${periodLabel(p)}</button>`).join("")}</div>`;
+    list=list.filter(r=>scope==="week"?weekKey(r.date)===period:r.date.slice(0,7)===period);
+  }
+  const total=list.length;
+  list=list.filter(r=>showAll||(r.tier&&r.tier!=="-")).sort((a,b)=>b.score-a.score||b.flow-a.flow);
+  if(scope==="season"&&!showAll) list=list.slice(0,60);
+  head+=`<div class="days"><button data-act="all" class="${showAll?"on":""}">ランク外も表示(この期間 全${total}試合)</button></div>`;
+  const order=["SS","S","A","B","C","-"];
+  const groups=order.map(t=>{const gs=list.filter(r=>r.tier===t);if(!gs.length)return"";
+    return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div></div></div>`).join("")}</div>`}).join("");
+  const note=`<div class="legend">ランクは「比べる範囲」で決まる。SS=歴代、S=シーズン、A=月、B=週の中での上位。試合の1日後・7日後・30日後に余韻(どれだけ語られてるか)を測って、順位はそのたびに動くよ。お気に入りチームの試合は、終わってから24時間たつと表に入るよ。</div>`;
+  return head+note+(groups||`<div class="empty">この期間はまだランクが付いた試合がないよ</div>`);
+}
+function renderHall(){
+  const ss=DATA.archive.filter(r=>r.tier==="SS").sort((a,b)=>b.score-a.score);
+  const conf=ss.filter(r=>r.ss_confirmed), cand=ss.filter(r=>!r.ss_confirmed);
+  const item=r=>`<div class="item">${tierBadge("SS",r.ss_confirmed,1)}<div><div>${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・${r.type==="regular"?"レギュラーシーズン":"プレーオフ"}・${r.season-1}-${String(r.season).slice(2)}</div></div></div>`;
+  return `<div class="legend"><b>殿堂</b>:何年経っても語られる、バスケ史に残る一戦。試合の中身でSS候補になり、30日後もまだ語られていたら殿堂入り。シーズンをまたいでずっと残るよ。</div>
+  <h3>殿堂入り(${conf.length})</h3>${conf.length?`<div class="list">${conf.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}
+  <h3>SS候補(30日後の余韻待ち)(${cand.length})</h3>${cand.length?`<div class="list">${cand.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}`;
+}
+function renderAces(){
+  const fav=new Set(DATA.favorites);
+  return `<div class="legend">エースの格(暫定)。<b>MVP級</b>×1.0/<b>オールスター級</b>×0.7/<b>エース</b>×0.4/それ以外×0.2。並び順はエース→セカンドエース。エースが欠場した日は、次の選手の格が1段上がる。</div><div class="aces">`+
+   Object.entries(DATA.stars).sort().map(([t,ps])=>`<div class="team"><div class="n">${t}${fav.has(t)?' <span class="fav-on">★お気に入り</span>':""}</div>${ps.map((p,i)=>`<div class="p">${i===0?"エース":i===1?"セカンド":"　核"}:${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px">${TIER_JA[p.tier]}</span></div>`).join("")}</div>`).join("")+`</div>`;
+}
+function renderHelp(){
+  const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc;
+  const rule={SS:`中身${T.SS.min}点以上 & 今季トップ${T.SS.season_top_n} → 30日後の余韻で殿堂入り`,S:`中身${T.S.min}点以上 & 今季の上位${T.S.season_top_frac*100}%`,A:`中身${T.A.min}点以上 & その月の上位${T.A.month_top_frac*100}%`,B:`中身${T.B.min}点以上 & その週の上位${T.B.week_top_frac*100}%`,C:`中身${T.C.min}点以上`};
+  return `<div class="legend">${["SS","S","A","B","C"].map(r=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0"><div class="badge ${r}" style="width:36px;height:36px;font-size:14px">${r}</div><div><b>${nm[r]}</b>:${ds[r]}<br>${rule[r]}</div></div>`).join("")}</div>
+  <div class="legend"><b>中身の点数</b><br>① 展開(最大40):クラッチ・延長・20点差逆転・ブザービーター<br>② スターの活躍(最大40):得点(効率込み)・守備・トリプルダブル × 選手の格<br>③ カードの格(最大20):両チーム勝ち越し・スター同士・エース欠場で減点<br>④ チーム(最大10):強み同士・今日だけ異常な攻撃/守備<br>勝負が決まった後の点(第4Q残り5分以降で20点差以上)は数えない。</div>
+  <div class="legend"><b>余韻(民衆の声)</b><br>1日後・7日後・30日後に、ニュースの媒体数・地元以外の媒体数・ハイライト動画の再生数を測る。人気チームの偏りを抑えるため、同じ夜の試合の中で何番目かに直して、真ん中の値を使う。中身の点数に最大±15点。</div>
+  <div class="legend"><b>比べる相手</b><br>レギュラーシーズンとプレーオフは別々。開幕から1ヶ月は、昨季の試合も比べる相手に混ぜてる(試合数が少ないから)。<br><br>データ:ESPN、Googleニュース、YouTube。通知は9・12・15・18・21時に、SS〜Aの試合だけ。</div>`;
+}
+function render(){
+  if(!DATA) return;
+  document.getElementById("upd").textContent="更新 "+DATA.generated_at.slice(5,16).replace("T"," ");
+  const m=document.getElementById("main");
+  m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():renderHelp();
+}
+document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
+document.getElementById("main").addEventListener("click",e=>{
+  const el=e.target.closest("[data-act]"); if(!el) return;
+  const id=el.dataset.id, act=el.dataset.act;
+  if(act==="day"){dayIdx=+el.dataset.i;render();return}
+  if(act==="scope"){scope=el.dataset.k;period=null;render();return}
+  if(act==="stype"){stype=el.dataset.k;period=null;render();return}
+  if(act==="period"){period=el.dataset.k;render();return}
+  if(act==="all"){showAll=!showAll;render();return}
+  if(act==="toggle"){document.getElementById("g_"+id).classList.toggle("open");return}
+  if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
+  if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
+  if(act==="show"){
+    const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);
+    const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block";
+    document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1");
+  }
+});
+fetch("data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{DATA=d;render()}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
+</script>
+</body>
+</html>

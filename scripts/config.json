@@ -1,0 +1,109 @@
+{
+  "_note": "設定。お気に入りチーム、ランクの基準、点数の重み。日々ここを調整する",
+  "favorites": [
+    "HOU"
+  ],
+  "notify_ranks": [
+    "SS",
+    "S",
+    "A"
+  ],
+  "notify_slots_jst": [
+    9,
+    12,
+    15,
+    18,
+    21
+  ],
+  "tier_mult": {
+    "mvp": 1.0,
+    "allstar": 0.7,
+    "ace": 0.4,
+    "other": 0.2
+  },
+  "points": {
+    "clutch": 20,
+    "overtime": 10,
+    "comeback20": 15,
+    "buzzer": 15,
+    "flow_cap": 50,
+    "pts40": 40,
+    "pts30_ts70": 30,
+    "pts25_ts75": 25,
+    "defense": 25,
+    "triple_double": 25,
+    "extra_event": 5,
+    "star_cap": 40,
+    "both_winning": 10,
+    "both_stars": 10,
+    "ace_out": -5,
+    "both_aces_out": -10,
+    "card_cap": 20,
+    "strength_clash": 5,
+    "team_anomaly": 5,
+    "team_cap": 10,
+    "last_possession": 15,
+    "clutch_stop": 10,
+    "star_moment": 10
+  },
+  "rules": {
+    "clutch_seconds": 300,
+    "clutch_margin": 5,
+    "comeback_margin": 20,
+    "buzzer_seconds": 2.0,
+    "garbage_seconds": 300,
+    "garbage_margin": 20,
+    "anomaly_rating_diff": 15,
+    "strength_top_n": 5,
+    "prev_season_helper_days": 30,
+    "min_month_pool": 40,
+    "min_week_pool": 15,
+    "last_possession_seconds": 24,
+    "last_possession_margin": 3,
+    "clutch_stop_margin": 4
+  },
+  "tiers": {
+    "SS": {
+      "min": 90,
+      "season_top_n": 3
+    },
+    "S": {
+      "min": 75,
+      "season_top_frac": 0.03
+    },
+    "A": {
+      "min": 60,
+      "month_top_frac": 0.1
+    },
+    "B": {
+      "min": 45,
+      "week_top_frac": 0.25
+    },
+    "C": {
+      "min": 30
+    }
+  },
+  "tier_names": {
+    "SS": "殿堂",
+    "S": "シーズンの名勝負",
+    "A": "今月の好ゲーム",
+    "B": "今週の注目",
+    "C": "今日の一本",
+    "-": "ランク外"
+  },
+  "tier_desc": {
+    "SS": "何年経っても語られる、バスケ史に残る一戦",
+    "S": "今季を振り返るとき必ず名前が挙がる。現代バスケの最高峰",
+    "A": "今月のベストに入る。見て損なし",
+    "B": "両チームや選手が好きなら楽しめる",
+    "C": "時間が余ってたら"
+  },
+  "buzz": {
+    "hall_min": 0.8,
+    "max_games_per_run": 150,
+    "_note": "余韻:同じ夜で一番騒がれたら+weight_up点、一番静かなら−weight_down点(静かでも見る価値は下がりにくいので下げ幅は小さく)。1日後・7日後・30日後の平均を使う。hall_min=殿堂入りに必要な30日後の余韻(0〜1)",
+    "weight_up": 15,
+    "weight_down": 5
+  },
+  "favorite_hide_hours": 24
+}

@@ -1,0 +1,63 @@
+name: 更新と通知
+
+on:
+  schedule:
+    - cron: "17 * * * *"              # 毎時:データ更新
+    - cron: "40 23,2,5,8,11 * * *"    # 日本時間 8:40/11:40/14:40/17:40/20:40:更新+通知(9・12・15・18・21時ごろ届く)
+  workflow_dispatch:
+    inputs:
+      notify:
+        description: "通知も送る? (yes/no)"
+        default: "no"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ネタバレ防止:スクリプトは試合の中身をログに出さない
+      - name: データ収集と採点
+        run: cd scripts && OUT_DIR=../docs python collect.py --rebuild
+
+      - name: 通知(ntfy)
+        if: github.event.schedule == '40 23,2,5,8,11 * * *' || github.event.inputs.notify == 'yes'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then echo "NTFY_TOPIC が未設定なので通知はスキップ"; exit 0; fi
+          curl -s -o /dev/null -w "ntfy %{http_code}\n" \
+            -H "Title: NBA Navi" -H "Tags: basketball" \
+            -H "Click: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" \
+            --data-binary @scripts/notify.txt "https://ntfy.sh/$NTFY_TOPIC"
+
+      - name: 余韻の記録を保存
+        run: |
+          git config user.name "nba-navi-bot"
+          git config user.email "nba-navi-bot@users.noreply.github.com"
+          git add scripts/buzz_state.json
+          git diff --cached --quiet && exit 0
+          git commit -m "余韻の記録を更新"
+          git pull --rebase && git push
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
