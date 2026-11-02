@@ -722,6 +722,17 @@ def build_game(e, start, season, strong, roster_cache):
     return g, rec
 
 
+def suggested_pairs():
+    """みんなから届いた因縁の候補を、カードごとに件数だけまとめる(本文は画面に出さない)"""
+    items = load_json(os.path.join(HERE, "suggestions.json"), {}).get("items", [])
+    out = {}
+    for i in items:
+        if i.get("kind") == "rivalry" and i.get("status") != "rejected":
+            o = out.setdefault(i["pair"], {"hot": 0, "tradition": 0})
+            o[i.get("heat", "hot")] += 1
+    return out
+
+
 # ---------- 記録の読み書き ----------
 def load_json(path, default):
     try:
@@ -908,7 +919,9 @@ def main():
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
             "topic_prefix": CFG["public_topic_prefix"],
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
-            "days": days, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {})}
+            "days": days, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
+            "suggest_topic": CFG.get("suggest_topic"), "rivalries": load_json(os.path.join(HERE, "rivalries.json"), {}),
+            "suggested": suggested_pairs()}
     out_dir = os.environ.get("OUT_DIR", HERE)
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
 

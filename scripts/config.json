@@ -133,5 +133,6 @@
     },
     "_note_story": "物語は慎重に。量産=シーズン合計がこの回数に届き、その月に1回以上増えたとき(pts50=50点以上、rec60=60点以上)。因縁は rivalries.json に type=hot で手登録したものだけ"
   },
-  "app_url": "https://tak0913.github.io/nba-navi/"
+  "app_url": "https://tak0913.github.io/nba-navi/",
+  "suggest_topic": "nbanavi-tak0913-inbox-8698e898"
 }

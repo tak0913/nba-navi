@@ -98,6 +98,10 @@ th{color:var(--sub);font-weight:500}
 .set .topic{display:flex;gap:8px;align-items:center;margin:8px 0}
 .set code{flex:1;background:var(--panel2);padding:10px;border-radius:8px;font-size:14px;word-break:break-all}
 .set .copy{padding:10px 14px;border-radius:8px;border:none;background:var(--text);color:var(--bg);font-weight:700}
+.set textarea,.set input[type=text]{width:100%;font-size:16px;padding:10px;border-radius:10px;background:var(--panel2);color:var(--text);border:1px solid var(--line);font-family:inherit}
+.set label{display:block;margin:10px 0 4px;color:var(--sub);font-size:13px}
+.seg{display:flex;gap:6px}.seg button{flex:1;padding:9px 4px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);font-size:14px}
+.seg button.on{background:var(--text);color:var(--bg);font-weight:700}
 .set ol{margin:6px 0 0;padding-left:20px;color:var(--sub);font-size:13px}
 .ob{position:fixed;inset:0;z-index:50;background:rgba(5,6,9,.92);display:flex;align-items:flex-end;justify-content:center;padding:0 0 env(safe-area-inset-bottom)}
 .ob .box{background:var(--panel);border:1px solid var(--line);border-radius:20px 20px 0 0;width:100%;max-width:560px;max-height:88vh;overflow:auto;padding:22px 20px 18px}
@@ -127,6 +131,7 @@ th{color:var(--sub);font-weight:500}
     <button data-v="hall">殿堂</button>
     <button data-v="aces">エース表</button>
     <button data-v="help">使い方</button>
+    <button data-v="post">投稿</button>
     <button data-v="settings">設定</button>
   </nav>
 </header>
@@ -376,6 +381,47 @@ function renderHelp(){
     <b>Q. 開幕直後のランクが辛い気がする</b><br>開幕から1ヶ月は試合数が少ないので、昨季の試合も比べる相手に混ぜてる。<br>
     <b>Q. データはどこから?</b><br>ESPN、Googleニュース、YouTubeなど。1時間ごとに自動更新。`)}`;
 }
+let postKind="rivalry", postHeat="hot";
+function renderPost(){
+  const teamOpts=sel=>`<option value="">選ぶ</option>`+Object.entries(DATA.teams).map(([k,n])=>`<option value="${k}"${k===sel?" selected":""}>${esc(n)}</option>`).join("");
+  const kinds=[["rivalry","因縁の対決"],["rank","ランクのズレ"],["other","その他"]];
+  let form="";
+  if(postKind==="rivalry") form=`<label>どのカード?</label><div style="display:flex;gap:6px;align-items:center"><select id="pa">${teamOpts("")}</select><span>×</span><select id="pb">${teamOpts("")}</select></div>
+    <label>どんな因縁?</label><div class="seg">${[["hot","今まさに燃えてる"],["tradition","昔からの伝統"]].map(([k,l])=>`<button data-act="heat" data-k="${k}" class="${postHeat===k?"on":""}">${l}</button>`).join("")}</div>
+    <div style="color:var(--sub);font-size:12px;margin-top:4px">例:燃えてる=最近のトレードやSNSでのケンカ/伝統=昔の因縁がお約束になったもの</div>
+    <label>なぜ因縁なの?(きっかけ・最近の出来事)</label><textarea id="pt" rows="3" maxlength="400"></textarea>`;
+  else if(postKind==="rank") form=`<label>どの試合?(例:11/2 TOR@LAL)</label><input type="text" id="pg" maxlength="40">
+    <label>どうズレてた?(見た感想。高すぎ・低すぎ・その理由)</label><textarea id="pt" rows="4" maxlength="400"></textarea>`;
+  else form=`<label>意見・要望など</label><textarea id="pt" rows="4" maxlength="400"></textarea>`;
+  const riv=Object.entries(DATA.rivalries||{}).filter(([k])=>!k.startsWith("_"));
+  const sug=Object.entries(DATA.suggested||{}).sort((a,b)=>(b[1].hot+b[1].tradition)-(a[1].hot+a[1].tradition));
+  return `<div class="set"><h4>投稿する</h4>
+    <div style="color:var(--sub);font-size:13px">アプリをもっと良くするための意見箱。登録なしで誰でも送れるよ。届いたものは持ち主が読んで、採点や因縁リストに反映するか決める。</div>
+    <label>種類</label><div class="seg">${kinds.map(([k,l])=>`<button data-act="pkind" data-k="${k}" class="${postKind===k?"on":""}">${l}</button>`).join("")}</div>
+    ${form}
+    <label>ニックネーム(なくてもOK)</label><input type="text" id="pby" maxlength="20" value="${esc(store.get("nick")||"")}">
+    <button class="copy" data-act="send" style="width:100%;margin-top:12px">送る</button>
+    <div id="pmsg" style="margin-top:8px;font-size:13px"></div>
+    <div style="color:var(--sub);font-size:12px;margin-top:8px">⚠ 試合の結果(スコア・勝敗)は書かないでね(ネタバレ防止)。送った内容は公開の通り道を通るので、本名や連絡先などの個人情報も書かないで。</div></div>
+  <div class="set"><h4>登録済みの因縁</h4>${riv.length?riv.map(([k,v])=>`<div style="margin:6px 0"><b>${k.replace("-"," × ")}</b> <span class="chip">${v.type==="hot"?"🔥今燃えてる":"伝統"}</span><br><span style="color:var(--sub);font-size:13px">${esc(v.name)}:${esc(v.why)}</span></div>`).join(""):"まだなし"}
+    <div style="color:var(--sub);font-size:12px;margin-top:6px">「今燃えてる」因縁の試合がA以上になると、月末の決選投票で物語の候補になる。</div></div>
+  <div class="set"><h4>みんなから届いた因縁の候補</h4>${sug.length?sug.map(([k,v])=>`<div style="margin:4px 0">${k.replace("-"," × ")} <span style="color:var(--sub);font-size:13px">燃えてる${v.hot}票・伝統${v.tradition}票</span></div>`).join(""):`<div style="color:var(--sub)">まだなし(1時間ごとに集計)</div>`}</div>`;
+}
+function sendPost(btn){
+  const v=id=>(document.getElementById(id)||{}).value||"";
+  const msg=document.getElementById("pmsg"), by=v("pby").trim();
+  const d={kind:postKind,text:v("pt").trim(),by};
+  if(postKind==="rivalry"){d.a=v("pa");d.b=v("pb");d.heat=postHeat;
+    if(!d.a||!d.b||d.a===d.b){msg.textContent="チームを2つ選んでね";return}}
+  else if(postKind==="rank"){d.game=v("pg").trim(); if(!d.text){msg.textContent="どうズレてたか書いてね";return}}
+  else if(!d.text){msg.textContent="内容を書いてね";return}
+  store.set("nick",by); btn.disabled=true; msg.textContent="送信中…";
+  fetch("https://ntfy.sh/"+DATA.suggest_topic,{method:"POST",body:JSON.stringify(d)})
+    .then(r=>{if(!r.ok) throw 0; msg.style.color="var(--b)"; msg.textContent="届いたよ、ありがとう!";
+      ["pt","pg"].forEach(id=>{const e=document.getElementById(id); if(e) e.value=""})})
+    .catch(()=>{msg.style.color="var(--out)"; msg.textContent="送れなかった。電波のいいところでもう一度試してね"})
+    .finally(()=>{btn.disabled=false});
+}
 function renderSettings(){
   const opts=`<option value="">推しなし</option>`+Object.entries(DATA.teams).map(([k,n])=>`<option value="${k}"${k===FAV?" selected":""}>${esc(n)}(${k})</option>`).join("");
   const topic=topicFor(FAV);
@@ -442,12 +488,15 @@ function render(){
   if(!DATA) return;
   document.getElementById("upd").textContent="更新 "+DATA.generated_at.slice(5,16).replace("T"," ");
   const m=document.getElementById("main");
-  m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="settings"?renderSettings():renderHelp();
+  m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="settings"?renderSettings():view==="post"?renderPost():renderHelp();
 }
 document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
 document.getElementById("main").addEventListener("click",e=>{
   const el=e.target.closest("[data-act]"); if(!el) return;
   const id=el.dataset.id, act=el.dataset.act;
+  if(act==="pkind"){postKind=el.dataset.k;render();return}
+  if(act==="heat"){postHeat=el.dataset.k;document.querySelectorAll('[data-act="heat"]').forEach(x=>x.classList.toggle("on",x===el));return}
+  if(act==="send"){sendPost(el);return}
   if(act==="day"){dayIdx=+el.dataset.i;render();return}
   if(act==="scope"){scope=el.dataset.k;period=null;render();return}
   if(act==="stype"){stype=el.dataset.k;period=null;render();return}

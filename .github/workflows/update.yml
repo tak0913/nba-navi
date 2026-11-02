@@ -12,6 +12,7 @@ on:
       - "scripts/config.json"
       - "scripts/stars.json"
       - "scripts/upgrades.json"
+      - "scripts/rivalries.json"
       - ".github/workflows/**"
   workflow_dispatch:
     inputs:
@@ -45,6 +46,11 @@ jobs:
           python-version: "3.12"
 
       # ネタバレ防止:スクリプトは試合の中身をログに出さない
+      - name: みんなからの投稿を集める
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: cd scripts && (python inbox.py || echo "inbox.py failed (続行)")
+
       - name: データ収集と採点
         run: |
           cd scripts
@@ -97,6 +103,7 @@ jobs:
           git add scripts/buzz_state.json
           git add -A scripts/votes 2>/dev/null || true
           git add scripts/upgrades.json 2>/dev/null || true
+          git add scripts/suggestions.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
           git pull --rebase && git push
