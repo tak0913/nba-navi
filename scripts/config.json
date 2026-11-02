@@ -105,5 +105,6 @@
     "weight_up": 15,
     "weight_down": 5
   },
-  "favorite_hide_hours": 24
+  "favorite_hide_hours": 24,
+  "public_topic_prefix": "nbanavi-tak0913-"
 }

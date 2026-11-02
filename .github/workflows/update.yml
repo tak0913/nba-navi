@@ -54,6 +54,25 @@ jobs:
             -H "Click: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" \
             --data-binary @scripts/notify.txt "https://ntfy.sh/$NTFY_TOPIC"
 
+      - name: 通知(みんな用:推しチーム別チャンネル)
+        if: github.event.schedule == '40 23,2,5,8,11 * * *' || github.event.inputs.notify == 'yes'
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request
+          cfg = json.load(open("scripts/config.json"))
+          ch = json.load(open("scripts/notify_channels.json"))
+          ok = 0
+          for key, text in ch.items():
+              req = urllib.request.Request("https://ntfy.sh/" + cfg["public_topic_prefix"] + key, data=text.encode(),
+                    headers={"Title": "NBA Navi", "Tags": "basketball", "Click": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"})
+              try:
+                  urllib.request.urlopen(req, timeout=20); ok += 1
+              except Exception as e:
+                  print("failed:", key, type(e).__name__)
+              time.sleep(1)
+          print(f"sent {ok}/{len(ch)} channels")
+          PY
+
       - name: 余韻の記録を保存
         run: |
           git config user.name "nba-navi-bot"

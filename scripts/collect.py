@@ -520,8 +520,10 @@ def assign_tiers(records, prev_records, today):
     A  好ゲーム: 中身の点数が高い + その月の上位
     B  注目:     中身の点数が高い + その週の上位
     C  一本:     中身の点数が一定以上
-    レギュラーシーズンとプレーオフは別々に比べる
+    レギュラーシーズンとプレーオフは別々に比べる(アプリ側 index.html にも同じ計算がある)
     """
+    import bisect
+    gt = lambda arr, s: len(arr) - bisect.bisect_right(arr, s)
     by_pool = {}
     for r in records:
         by_pool.setdefault((r["season"], r["type"]), []).append(r)
@@ -531,47 +533,54 @@ def assign_tiers(records, prev_records, today):
             prev_by_type.setdefault(r["type"], []).append(fs(r))
 
     for (season, typ), pool in by_pool.items():
-        pool.sort(key=lambda r: r["date"])
-        first = dt.date.fromisoformat(pool[0]["date"])
-        helper = []  # シーズン開幕から1ヶ月だけ、昨季を比べる相手に混ぜる
-        if (today - first).days <= R["prev_season_helper_days"]:
-            helper = prev_by_type.get(typ, [])
-        season_scores = [fs(r) for r in pool] + helper
         for r in pool:
-            d = dt.date.fromisoformat(r["date"])
-            s = fs(r)
-            month = [fs(x) for x in pool if x["date"][:7] == r["date"][:7]]
+            r["_s"], r["_d"] = fs(r), dt.date.fromisoformat(r["date"])
+        first = min(r["_d"] for r in pool)
+        helper = prev_by_type.get(typ, []) if (today - first).days <= R["prev_season_helper_days"] else []
+        season_sorted = sorted([r["_s"] for r in pool] + list(helper))
+        pool_sorted = sorted(r["_s"] for r in pool)
+        months, weeks, flows = {}, {}, {}
+        for r in pool:
+            months.setdefault(r["date"][:7], []).append(r["_s"])
+            weeks.setdefault(week_start(r["_d"]), []).append(r["_s"])
+            flows.setdefault(r["_s"], []).append(r["flow"])
+        for g in (months, weeks):
+            for k in g:
+                g[k].sort()
+        for r in pool:
+            d, s = r["_d"], r["_s"]
+            month = months[r["date"][:7]]
             if len(month) < R["min_month_pool"]:
-                month = [fs(x) for x in pool if 0 <= (d - dt.date.fromisoformat(x["date"])).days < 30
-                         or x["date"][:7] == r["date"][:7]]
+                month = sorted(x["_s"] for x in pool if 0 <= (d - x["_d"]).days < 30 or x["date"][:7] == r["date"][:7])
             ws = week_start(d)
-            week = [fs(x) for x in pool if week_start(dt.date.fromisoformat(x["date"])) == ws]
+            week = weeks[ws]
             if len(week) < R["min_week_pool"]:
-                week = [fs(x) for x in pool if 0 <= (d - dt.date.fromisoformat(x["date"])).days < 7
-                        or week_start(dt.date.fromisoformat(x["date"])) == ws]
-
-            def top_frac(arr):
-                return sum(1 for v in arr if v > s) / max(1, len(arr))
-            season_rank = 1 + sum(1 for v in season_scores if v > s)
-            r["season_rank"] = 1 + sum(1 for x in pool if fs(x) > s or (fs(x) == s and x["flow"] > r["flow"]))
-            r["month_rank"] = 1 + sum(1 for v in month if v > s)
-
+                week = sorted(x["_s"] for x in pool if 0 <= (d - x["_d"]).days < 7 or week_start(x["_d"]) == ws)
+            frac = lambda arr: gt(arr, s) / max(1, len(arr))
+            r["season_rank"] = 1 + gt(pool_sorted, s) + sum(1 for f in flows[s] if f > r["flow"])
+            r["month_rank"] = 1 + gt(month, s)
             tier = "-"
-            if s >= T["SS"]["min"] and season_rank <= T["SS"]["season_top_n"]:
+            if s >= T["SS"]["min"] and 1 + gt(season_sorted, s) <= T["SS"]["season_top_n"]:
                 tier = "SS"
-            elif s >= T["S"]["min"] and top_frac(season_scores) < T["S"]["season_top_frac"]:
+            elif s >= T["S"]["min"] and frac(season_sorted) < T["S"]["season_top_frac"]:
                 tier = "S"
-            elif s >= T["A"]["min"] and top_frac(month) < T["A"]["month_top_frac"]:
+            elif s >= T["A"]["min"] and frac(month) < T["A"]["month_top_frac"]:
                 tier = "A"
-            elif s >= T["B"]["min"] and top_frac(week) < T["B"]["week_top_frac"]:
+            elif s >= T["B"]["min"] and frac(week) < T["B"]["week_top_frac"]:
                 tier = "B"
             elif s >= T["C"]["min"]:
                 tier = "C"
             r["tier"] = tier
-            # SS は余韻(民衆の声)で確定するまで「候補」
-            d30 = (r.get("buzz") or {}).get("d30")
-            r["ss_confirmed"] = bool(tier == "SS" and d30 is not None and d30 >= CFG["buzz"]["hall_min"])
+            r["ss_confirmed"] = bool(tier == "SS" and hall_ok(r))
+        for r in pool:
+            r.pop("_s", None); r.pop("_d", None)
     return records
+
+
+def hall_ok(r):
+    """SS は余韻(民衆の声):30日後もまだ語られていたら殿堂入り"""
+    d30 = (r.get("buzz") or {}).get("d30")
+    return d30 is not None and d30 >= CFG["buzz"]["hall_min"]
 
 
 # ---------- 画面用の1試合 ----------
@@ -650,16 +659,17 @@ def load_json(path, default):
         return default
 
 
-def is_fav(rec):
-    return rec["home"] in CFG["favorites"] or rec["away"] in CFG["favorites"]
+def is_fav(rec, favs=None):
+    favs = CFG["favorites"] if favs is None else favs
+    return rec["home"] in favs or rec["away"] in favs
 
 
 NOW = dt.datetime.now(JST)
 
 
-def is_hidden(rec):
+def is_hidden(rec, favs=None):
     """お気に入りの試合は、終わってから24時間は判定・比較・通知から隠す。24時間たったら表に入れる"""
-    if not is_fav(rec):
+    if not is_fav(rec, favs):
         return False
     end = rec.get("end_utc")
     if not end:
@@ -705,7 +715,8 @@ def season_dates(any_us_date):
 
 
 # ---------- 通知文 ----------
-def notify_text(now, games_today, arch):
+def notify_text(now, games_today, arch, favs=None):
+    favs = CFG["favorites"] if favs is None else favs
     slots = CFG["notify_slots_jst"]
     cur = now.hour * 60 + now.minute
     slot = min(slots, key=lambda h: abs(h * 60 - cur))
@@ -717,7 +728,7 @@ def notify_text(now, games_today, arch):
     done = [g for g in games_today if g["completed"]]
     lines = [f"【{slot}:00】本日の注目試合"]
     recs = [arch[g["id"]] for g in done if g["id"] in arch]
-    ranked = sorted([r for r in recs if not is_hidden(r) and r.get("tier") in CFG["notify_ranks"]],
+    ranked = sorted([r for r in recs if not is_hidden(r, favs) and r.get("tier") in CFG["notify_ranks"]],
                     key=lambda r: (-fs(r), -r["flow"]))
     names = CFG["tier_names"]
     for i, r in enumerate(ranked, 1):
@@ -728,8 +739,8 @@ def notify_text(now, games_today, arch):
         lines.append(f"{i}位 {tag}({names[r['tier']]}) {r['away']} @ {r['home']}{new}")
     if not ranked:
         lines.append("SS〜Aランクの試合はまだなし")
-    if any(g["teams"][0]["abbr"] in CFG["favorites"] or g["teams"][1]["abbr"] in CFG["favorites"] for g in games_today):
-        lines.append("お気に入り:対象外")
+    if any(g["teams"][0]["abbr"] in favs or g["teams"][1]["abbr"] in favs for g in games_today):
+        lines.append("推しチームの試合:対象外")
     lines.append(f"終了 {len(done)}/{len(games_today)}試合")
     return "\n".join(lines)
 
@@ -813,26 +824,32 @@ def main():
           if any(v is not None for v in (r.get("buzz") or {}).values())}
     json.dump(bs, open(BUZZ_STATE, "w"), separators=(",", ":"))
 
-    # 画面用:記録からは中身の内訳を外し、ランクと順位だけ渡す
-    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "tier", "ss_confirmed",
-                                    "season_rank", "month_rank", "flow")} | {"score": fs(r), "buzz_done": [k for k, v in (r.get("buzz") or {}).items() if v is not None]}
-           for r in records if not is_hidden(r)] 
-    for day in days:
-        for g in day["games"]:
-            r = arch.get(g["id"])
-            fav = g["teams"][0]["abbr"] in CFG["favorites"] or g["teams"][1]["abbr"] in CFG["favorites"]
-            g["favorite"] = fav and (r is None or is_hidden(r))
-            g["fav_team"] = fav
-            if r and not g["favorite"]:
-                g["tier"], g["ss_confirmed"] = r["tier"], r["ss_confirmed"]
-                g["season_rank"], g["month_rank"] = r["season_rank"], r["month_rank"]
+    # 画面用:全試合の「最終点」だけ渡す。推しを除いたランク付けは各自のスマホで計算する
+    #(中身の内訳やスコアは渡さない)
+    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "flow", "end_utc")}
+           | {"score": fs(r), "hall_ok": hall_ok(r)} for r in records]
+    tinfo = team_info()
     data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(),
-            "favorites": CFG["favorites"], "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"],
-            "tiers": T, "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
+            "owner_favorites": CFG["favorites"], "fav_hide_hours": CFG.get("favorite_hide_hours", 24),
+            "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R,
+            "prev": prev_records if isinstance(prev_records, dict) else {},
+            "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
+            "topic_prefix": CFG["public_topic_prefix"],
+            "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
             "days": days, "archive": pub}
     out_dir = os.environ.get("OUT_DIR", HERE)
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
+
+    # 通知:持ち主用(config の favorites)
     open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))
+    # 通知:みんな用。推しチームごとのチャンネル(推しなし + 30チーム)
+    channels = {}
+    for fav in [None] + sorted(tinfo):
+        favs = [fav] if fav else []
+        recs = [dict(r) for r in records if not is_hidden(r, favs)]
+        assign_tiers(recs, prev_records, today)
+        channels[(fav or "none").lower()] = notify_text(now, days[0]["games"], {r["id"]: r for r in recs}, favs)
+    json.dump(channels, open(os.path.join(HERE, "notify_channels.json"), "w"), ensure_ascii=False)
     print(f"OK: {sum(len(d['games']) for d in days)} recent games, archive {len(records)} games")
     print("buzz signals collected (counts only): " + ", ".join(f"{k}={v}" for k, v in STATS.items()))
 
