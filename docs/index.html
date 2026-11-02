@@ -92,6 +92,21 @@ th{color:var(--sub);font-weight:500}
 .set code{flex:1;background:var(--panel2);padding:10px;border-radius:8px;font-size:14px;word-break:break-all}
 .set .copy{padding:10px 14px;border-radius:8px;border:none;background:var(--text);color:var(--bg);font-weight:700}
 .set ol{margin:6px 0 0;padding-left:20px;color:var(--sub);font-size:13px}
+.ob{position:fixed;inset:0;z-index:50;background:rgba(5,6,9,.92);display:flex;align-items:flex-end;justify-content:center;padding:0 0 env(safe-area-inset-bottom)}
+.ob .box{background:var(--panel);border:1px solid var(--line);border-radius:20px 20px 0 0;width:100%;max-width:560px;max-height:88vh;overflow:auto;padding:22px 20px 18px}
+.ob .step{color:var(--sub);font-size:12px;margin-bottom:6px}
+.ob h2{margin:0 0 12px;font-size:20px}
+.ob p,.ob li{font-size:14px;line-height:1.65}
+.ob ul{padding-left:18px;margin:8px 0}
+.ob .dots{display:flex;gap:6px;justify-content:center;margin:14px 0 10px}
+.ob .dots i{width:7px;height:7px;border-radius:50%;background:#3a404c}
+.ob .dots i.on{background:var(--text)}
+.ob .acts{display:flex;gap:8px}
+.ob .acts button{flex:1;padding:13px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:700}
+.ob .acts button.pri{background:var(--text);color:var(--bg);border-color:var(--text)}
+.ob .skip{display:block;margin:10px auto 0;background:none;border:none;color:var(--sub);font-size:13px}
+.ob .tierrow{display:flex;gap:10px;align-items:center;margin:6px 0;font-size:13px}
+.ob .tierrow .badge{width:34px;height:34px;font-size:13px}
 .banner{background:#1d2433;border:1px solid #33415c;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:13px}
 .banner button{margin-left:6px;padding:4px 10px;border-radius:8px;border:none;background:var(--a);color:#000;font-weight:700}
 </style>
@@ -109,6 +124,7 @@ th{color:var(--sub);font-weight:500}
   </nav>
 </header>
 <main id="main"><div class="empty">読み込み中…</div></main>
+<div class="ob" id="ob" style="display:none"><div class="box" id="obbox"></div></div>
 
 <script>
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
@@ -319,8 +335,55 @@ function renderSettings(){
       <li>ntfyを開いて右上の「+」</li>
       <li>上のチャンネル名を貼り付けて登録</li></ol>
     <div style="color:var(--sub);font-size:12px;margin-top:8px">推しチームを変えたら、ntfyのチャンネルも登録し直してね(推しの試合を外した通知がチャンネルごとに届く)。</div></div>
+  <div class="set"><h4>使い方</h4><button class="copy" data-act="ob" style="width:100%">使い方をもう一度見る</button></div>
   <div class="set"><h4>この端末の情報</h4><div style="color:var(--sub);font-size:13px">推し:${FAV?esc(DATA.teams[FAV]||FAV):"なし"}<br>データ更新:${DATA.generated_at.replace("T"," ")}</div></div>`;
 }
+// ---- はじめての使い方(最初の1回だけ。設定タブから見直せる) ----
+let obStep=0;
+function obSteps(){
+  const standalone=(window.navigator.standalone===true)||(window.matchMedia&&matchMedia("(display-mode: standalone)").matches);
+  const tiers=["SS","S","A","B","C"].map(t=>`<div class="tierrow"><div class="badge ${t}">${t}</div><div><b>${DATA.tier_names[t]}</b>:${DATA.tier_desc[t]}</div></div>`).join("");
+  const opts=`<option value="">推しなし</option>`+Object.entries(DATA.teams).map(([k,n])=>`<option value="${k}"${k===FAV?" selected":""}>${esc(n)}</option>`).join("");
+  const steps=[
+    ["ようこそ!🏀",`<p>NBAの試合を<b>ネタバレなしで</b>「見るべきかどうか」教えてくれるアプリだよ。</p>
+      <ul><li>勝敗やスコアは、<b>自分でボタンを押すまで出ない</b></li><li>代わりに、試合がどれだけ面白かったかを<b>ランク(SS〜C)</b>で教える</li><li>データは1時間ごとに自動で更新</li></ul>`],
+    ["ランクの意味",`${tiers}<p style="color:var(--sub);font-size:13px">ランクは比べる範囲で決まるよ(SS=歴代、S=シーズン、A=月、B=週の中での上位)。試合後のニュースや動画の盛り上がり(余韻)でも少しずつ動く。</p>`],
+    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る</li><li>カードの上に<b>欠場・出場微妙の選手</b>と、理由・復帰見込み</li><li>タップするとロスターとチームの強み</li><li>一番下の<b>「結果とスタッツを見る」</b>は、もう一度確認してから表示(うっかり防止)</li></ul>`],
+    ["ティア表・殿堂・エース表",`<ul><li><b>ティア表</b>:直近3日・週・月・シーズンでランク順に並ぶ。レギュラーシーズン/プレーオフ切り替え、「ランク外も表示」で全試合</li><li><b>殿堂</b>:何年経っても語られる伝説の試合だけが残る場所</li><li><b>エース表</b>:各チームのエースと格(採点に使ってる)</li></ul>`],
+    ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付けや通知から外して、ネタバレしないようにするよ。</p>
+      <select id="obfav" style="width:100%;font-size:16px;padding:10px;border-radius:10px;background:var(--panel2);color:var(--text);border:1px solid var(--line)">${opts}</select>
+      <p style="color:var(--sub);font-size:12px">あとから「設定」タブで変えられる。</p>`],
+    ["通知を受け取る(任意)",`<p>9・12・15・18・21時ごろ、SS〜Aの試合を<b>対戦カードとランクだけ</b>で知らせるよ。</p>
+      <ol style="padding-left:18px"><li>App Store / Google Playで「<b>ntfy</b>」を入れる</li><li>右上の「+」でこのチャンネル名を登録</li></ol>
+      <div class="set" style="margin:8px 0"><div class="topic" style="margin:0"><code id="obtopic">${esc(topicFor(FAV))}</code><button class="copy" data-ob="copy">コピー</button></div></div>
+      <p style="color:var(--sub);font-size:12px">チャンネル名は推しチームによって変わる。あとから「設定」タブでも確認できる。</p>`],
+  ];
+  if(!standalone) steps.push(["ホーム画面に追加",`<p>アプリみたいにアイコンから開けるようになるよ。</p>
+      <ul><li><b>iPhone</b>:Safariの共有ボタン(□に↑)→「ホーム画面に追加」</li><li><b>Android</b>:Chromeの右上︙ →「ホーム画面に追加」</li></ul>
+      <p style="color:var(--sub);font-size:12px">LINEの中で開いてるときは、右下などのメニューから「Safariで開く」「ブラウザで開く」を選んでから追加してね。ホーム画面から開いたら、推しチームはもう一度選び直してね(保存場所が別になるため)。</p>`]);
+  steps.push(["準備完了!",`<p>あとは試合タブを見るだけ。<b>ランクが高い試合から見れば、外れなし</b>。</p><p style="color:var(--sub);font-size:13px">この説明は「設定」タブの「使い方をもう一度見る」からいつでも見られるよ。</p>`]);
+  return steps;
+}
+function showOb(i){
+  const st=obSteps(); obStep=Math.max(0,Math.min(i,st.length-1));
+  const [t,b]=st[obStep], last=obStep===st.length-1;
+  document.getElementById("obbox").innerHTML=`<div class="step">使い方 ${obStep+1}/${st.length}</div><h2>${t}</h2>${b}
+    <div class="dots">${st.map((_,k)=>`<i class="${k===obStep?"on":""}"></i>`).join("")}</div>
+    <div class="acts">${obStep>0?`<button data-ob="prev">戻る</button>`:""}<button class="pri" data-ob="${last?"done":"next"}">${last?"はじめる":"次へ"}</button></div>
+    ${last?"":`<button class="skip" data-ob="done">スキップ</button>`}`;
+  document.getElementById("ob").style.display="flex";
+}
+document.getElementById("ob").addEventListener("click",e=>{
+  const b=e.target.closest("[data-ob]"); if(!b) return; const a=b.dataset.ob;
+  if(a==="next") showOb(obStep+1);
+  else if(a==="prev") showOb(obStep-1);
+  else if(a==="done"){document.getElementById("ob").style.display="none";store.set("onboarded","1");render()}
+  else if(a==="copy"){const t=document.getElementById("obtopic").textContent;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{b.textContent="コピーした"}).catch(()=>{b.textContent="長押しでコピー"})}
+});
+document.getElementById("ob").addEventListener("change",e=>{
+  if(e.target.id==="obfav"){FAV=e.target.value;store.set("fav",FAV);store.set("fav_set","1");computeTiers();}
+});
+
 function render(){
   if(!DATA) return;
   document.getElementById("upd").textContent="更新 "+DATA.generated_at.slice(5,16).replace("T"," ");
@@ -336,6 +399,7 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="stype"){stype=el.dataset.k;period=null;render();return}
   if(act==="period"){period=el.dataset.k;render();return}
   if(act==="all"){showAll=!showAll;render();return}
+  if(act==="ob"){showOb(0);return}
   if(act==="goset"){view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
   if(act==="copy"){const t=document.getElementById("topic").textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{el.textContent="コピーした"}).catch(()=>{el.textContent="長押しでコピーしてね"});return}
@@ -351,7 +415,7 @@ document.getElementById("main").addEventListener("click",e=>{
 document.getElementById("main").addEventListener("change",e=>{
   if(e.target.id==="favsel"){FAV=e.target.value;store.set("fav",FAV);store.set("fav_set","1");computeTiers();render()}
 });
-fetch("data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{DATA=d;loadFav();computeTiers();render()}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
+fetch("data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{DATA=d;loadFav();computeTiers();render();if(!store.get("onboarded"))showOb(0)}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
 </script>
 </body>
 </html>

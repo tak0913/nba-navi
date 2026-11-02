@@ -4,6 +4,14 @@ on:
   schedule:
     - cron: "17 * * * *"              # 毎時:データ更新
     - cron: "40 23,2,5,8,11 * * *"    # 日本時間 8:40/11:40/14:40/17:40/20:40:更新+通知(9・12・15・18・21時ごろ届く)
+  push:                               # アプリやスクリプト・設定を直したらすぐ反映
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "scripts/*.py"
+      - "scripts/config.json"
+      - "scripts/stars.json"
+      - ".github/workflows/**"
   workflow_dispatch:
     inputs:
       notify:
