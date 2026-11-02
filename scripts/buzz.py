@@ -91,7 +91,7 @@ def combine(pcts):
 # ---------- SNS(v2) ----------
 def bluesky_engagement(team_a, team_b, start, end, max_pages=3):
     """Blueskyで、期間内に両チーム名を含む投稿の 数・いいね・リポスト を合計する(登録不要の公開API)"""
-    base = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+    base = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
     q = f'{team_a["nick"]} {team_b["nick"]}'
     since = f"{start.isoformat()}T00:00:00Z"
     until = f"{end.isoformat()}T00:00:00Z"
