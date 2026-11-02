@@ -35,6 +35,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: 接続チェック(Bluesky)
+        if: github.event.inputs.notify == 'probe'
+        run: |
+          for u in "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=nba&limit=1" "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=nba&limit=1" "https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=nba&limit=1"; do
+            echo "$u -> $(curl -s -o /tmp/b.txt -w '%{http_code}' "$u") $(head -c 120 /tmp/b.txt)"
+          done
+          exit 0
+
       # ネタバレ防止:スクリプトは試合の中身をログに出さない
       - name: データ収集と採点
         run: |
