@@ -217,12 +217,16 @@ def is_star(tier):
 def score_flow(plays, home_id):
     """① 展開"""
     flags = {"clutch": False, "overtime": False, "comeback20": False, "buzzer": False,
-             "last_possession": False, "clutch_stop": False}
+             "last_possession": False, "clutch_stop": False, "late_surge": False, "late_upset": False}
     if not plays:
         return 0, flags
     lo = hi = 0
     prev_h = prev_a = 0
+    prev_per, prev_sec = 0, 720.0
     last_period = 0
+    close_secs = 0.0          # 終盤(第4Q残り5分〜延長)に5点差以内だった時間の合計
+    peak = {"h": 0, "a": 0}   # 終盤(第4Q残り6分〜)に開いた最大リード
+    surged = {"h": False, "a": False}   # そのリードを5点差以内まで詰められた
     for pl in plays:
         per = pl.get("period", {}).get("number", 0)
         last_period = max(last_period, per)
@@ -230,9 +234,18 @@ def score_flow(plays, home_id):
         h, a = int(pl.get("homeScore", prev_h)), int(pl.get("awayScore", prev_a))
         diff = h - a
         lo, hi = min(lo, diff), max(hi, diff)
-        late = (per == 4 and sec <= R["clutch_seconds"]) or per >= 5
-        if late and abs(diff) <= R["clutch_margin"]:
-            flags["clutch"] = True
+        # クラッチ:前のプレーからこのプレーまでの時間、5点差以内だったら足す
+        if per == prev_per and (per >= 5 or per == 4):
+            start_s = prev_sec if per >= 5 else min(prev_sec, R["clutch_seconds"])
+            if sec < start_s and abs(prev_h - prev_a) <= R["clutch_margin"]:
+                close_secs += start_s - sec
+        # 終盤の猛追:残り6分以降に15点差以上ついたのを、5点差以内まで詰めた
+        if (per == 4 and sec <= R["late_window_seconds"]) or per >= 5:
+            if diff > 0: peak["h"] = max(peak["h"], diff)
+            if diff < 0: peak["a"] = max(peak["a"], -diff)
+            for side, lead in (("h", diff), ("a", -diff)):
+                if peak[side] >= R["late_surge_from"] and lead <= R["clutch_margin"]:
+                    surged[side] = True
         # 最後の1プレーまでもつれた:第4Q・延長の残り24秒以内に3点差以内
         final_secs = per >= 4 and sec <= R["last_possession_seconds"]
         if final_secs and abs(prev_h - prev_a) <= R["last_possession_margin"]:
@@ -252,29 +265,44 @@ def score_flow(plays, home_id):
             if before < 0 <= after or (before == 0 and after > 0):
                 flags["buzzer"] = True
         prev_h, prev_a = h, a
+        prev_per, prev_sec = per, sec
     final = prev_h - prev_a
     flags["overtime"] = last_period >= 5
+    flags["clutch"] = close_secs >= R["clutch_min_seconds"]
     if (final > 0 and lo <= -R["comeback_margin"]) or (final < 0 and hi >= R["comeback_margin"]):
         flags["comeback20"] = True
+    # 終盤に大差をつけた側が負けた → 大逆転。負けなかったら猛追(どちらか一方だけ)
+    if (peak["h"] >= R["late_surge_from"] and final < 0) or (peak["a"] >= R["late_surge_from"] and final > 0):
+        flags["late_upset"] = True
+    elif surged["h"] or surged["a"]:
+        flags["late_surge"] = True
     pts = sum(P[k] for k, v in flags.items() if v and not k.startswith("_"))
     return min(P["flow_cap"], pts), flags
 
 
 def garbage_points(plays):
-    """勝負が決まった後(第4Q残り5分以降で20点差以上)に取った点を選手ごとに数える"""
+    """勝負が決まった後(第4Q残り5分以降で20点差以上)に取った点を選手ごとに数える。
+    ただし、そのあと10点差以内まで詰まった(勝負が決まってなかった)なら数えない"""
     g = {}
-    prev_h = prev_a = 0
+    seq, prev_h, prev_a = [], 0, 0
     for pl in plays:
+        h, a = int(pl.get("homeScore", prev_h)), int(pl.get("awayScore", prev_a))
+        seq.append((pl, prev_h, prev_a, abs(h - a)))
+        prev_h, prev_a = h, a
+    later_min = [0] * len(seq)
+    m = 999
+    for i in range(len(seq) - 1, -1, -1):
+        later_min[i] = m
+        m = min(m, seq[i][3])
+    for i, (pl, ph, pa, _) in enumerate(seq):
         per = pl.get("period", {}).get("number", 0)
         sec = clock_sec(pl.get("clock", {}).get("displayValue"))
-        h, a = int(pl.get("homeScore", prev_h)), int(pl.get("awayScore", prev_a))
         if pl.get("scoringPlay") and per == 4 and sec <= R["garbage_seconds"] \
-                and abs(prev_h - prev_a) >= R["garbage_margin"]:
+                and abs(ph - pa) >= R["garbage_margin"] and later_min[i] > R["garbage_recover_margin"]:
             parts = pl.get("participants") or []
             if parts:
                 pid = parts[0].get("athlete", {}).get("id")
                 g[pid] = g.get(pid, 0) + int(pl.get("scoreValue", 0))
-        prev_h, prev_a = h, a
     return g
 
 
@@ -306,33 +334,45 @@ def promoted_mult(abbr, name, out_names):
     return CFG["tier_mult"][tier]
 
 
-def score_stars(box, plays):
-    """② スターの活躍"""
+def score_stars(box, plays, out_by_team=None):
+    """② スターの活躍(上限あり)と ⑤ 歴史的記録(上限なし・格を掛けない)を返す"""
     garbage = garbage_points(plays)
-    total = 0.0
+    total, record, legend = 0.0, 0, False
     for abbr, rows in box.items():
-        out_names = {norm(r["name"]) for r in rows if r["dnp"]}
+        out_names = {norm(r["name"]) for r in rows if r["dnp"]} | (out_by_team or {}).get(abbr, set())
         for r in rows:
             if r["dnp"]:
                 continue
             s = r["stats"]
-            pts = num(s.get("PTS")) - garbage.get(r["id"], 0)
+            raw = num(s.get("PTS"))
+            pts = raw - garbage.get(r["id"], 0)
             fgm, fga = made_att(s.get("FG", "0-0"))
             ftm, fta = made_att(s.get("FT", "0-0"))
             denom = 2 * (fga + 0.44 * fta)
-            ts = num(s.get("PTS")) / denom if denom else 0
+            ts = raw / denom if denom else 0
             ev = []
-            if pts >= 40: ev.append(P["pts40"])
+            if pts >= 50: ev.append(P["pts50"])
+            elif pts >= 40: ev.append(P["pts40"])
             elif pts >= 30 and ts >= 0.70: ev.append(P["pts30_ts70"])
             elif pts >= 25 and ts >= 0.75: ev.append(P["pts25_ts75"])
             if num(s.get("BLK")) >= 5 or num(s.get("STL")) >= 4: ev.append(P["defense"])
             cats = [num(s.get(k)) for k in ("PTS", "REB", "AST", "STL", "BLK")]
-            if sum(1 for c in cats if c >= 10) >= 3: ev.append(P["triple_double"])
+            n10 = sum(1 for c in cats if c >= 10)
+            if n10 >= 3: ev.append(P["triple_double"])
+            # ⑤ 歴史的記録:誰がやっても歴史に残るので格は掛けない
+            rec = 0
+            if pts >= 70: rec = P["record70"]
+            elif pts >= 60: rec = P["record60"]
+            if n10 >= 4: rec = max(rec, P["record70"])                       # クアドルプルダブル
+            if sum(1 for c in cats if c >= 20) >= 3: rec = max(rec, P["record60"])  # 20-20-20
+            if rec:
+                record += rec
+                legend = legend or rec >= P["record70"]
             if not ev:
                 continue
             base = max(ev) + P["extra_event"] * (len(ev) - 1)
             total += base * promoted_mult(abbr, r["name"], out_names)
-    return min(P["star_cap"], round(total, 1))
+    return min(P["star_cap"], round(total, 1)), record, legend
 
 
 def card_quality(teams, out_by_team, winning):
@@ -351,7 +391,7 @@ def card_quality(teams, out_by_team, winning):
         if len(lst) >= 2 and norm(lst[0]["name"]) in outs and norm(lst[1]["name"]) in outs:
             pts += P["both_aces_out"]
         elif lst and norm(lst[0]["name"]) in outs:
-            pts += P["ace_out"]
+            pts += P["star_ace_out"] if is_star(lst[0]["tier"]) else P["ace_out"]
     return max(0, min(P["card_cap"], pts))
 
 
@@ -414,9 +454,15 @@ def score_record(e, start, summary, season, strong, label=None):
     teams, home_id, winning = parse_teams(comp, True)
     plays = summary.get("plays", [])
     box = box_players(summary)
+    # 欠場:ボックススコアの「出場なし」+ ケガ人リストの「欠場・出場停止」(ベンチ外の選手はボックスに載らないため)
     out_post = {ab: {norm(r["name"]) for r in rows if r["dnp"]} for ab, rows in box.items()}
+    for blk in summary.get("injuries", []):
+        ab = blk.get("team", {}).get("abbreviation")
+        for i in blk.get("injuries", []):
+            if i.get("status") in ("Out", "Suspension"):
+                out_post.setdefault(ab, set()).add(norm(i.get("athlete", {}).get("displayName", "")))
     flow, flags = score_flow(plays, home_id)
-    stars = score_stars(box, plays)
+    stars, record, legend = score_stars(box, plays, out_post)
     # 試合を決めたプレーにスター(MVP級・AS級)が関わっていたら、スターの見せ場として加点
     key = set(flags.get("_key_players", []))
     if any(r["id"] in key and is_star(tier_of(ab, r["name"])) for ab, rows in box.items() for r in rows):
@@ -429,7 +475,7 @@ def score_record(e, start, summary, season, strong, label=None):
         "id": e["id"], "date": start.date().isoformat(),
         "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
         "home": teams[0]["abbr"], "away": teams[1]["abbr"],
-        "content": round(flow + stars + card + team, 1), "flow": flow,
+        "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend,
         "end_utc": plays[-1].get("wallclock") if plays else None,
         "buzz": {"d1": None, "d7": None, "d30": None},
     }
@@ -570,6 +616,8 @@ def assign_tiers(records, prev_records, today):
                 tier = "B"
             elif s >= T["C"]["min"]:
                 tier = "C"
+            if r.get("legend"):   # 70点以上などの歴史的記録は点数に関係なくSS候補(殿堂入りは余韻で決める)
+                tier = "SS"
             r["tier"] = tier
             r["ss_confirmed"] = bool(tier == "SS" and hall_ok(r))
         for r in pool:
@@ -826,12 +874,12 @@ def main():
 
     # 画面用:全試合の「最終点」だけ渡す。推しを除いたランク付けは各自のスマホで計算する
     #(中身の内訳やスコアは渡さない)
-    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "flow", "end_utc")}
+    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "flow", "end_utc", "legend")}
            | {"score": fs(r), "hall_ok": hall_ok(r)} for r in records]
     tinfo = team_info()
     data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(),
             "owner_favorites": CFG["favorites"], "fav_hide_hours": CFG.get("favorite_hide_hours", 24),
-            "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R,
+            "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P,
             "prev": prev_records if isinstance(prev_records, dict) else {},
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
             "topic_prefix": CFG["public_topic_prefix"],

@@ -126,7 +126,7 @@ th{color:var(--sub);font-weight:500}
     <button data-v="tiers">ティア表</button>
     <button data-v="hall">殿堂</button>
     <button data-v="aces">エース表</button>
-    <button data-v="help">ランクの見方</button>
+    <button data-v="help">使い方</button>
     <button data-v="settings">設定</button>
   </nav>
 </header>
@@ -185,6 +185,7 @@ function computeTiers(){
       else if(s>=T.A.min&&frac(month)<T.A.month_top_frac) t="A";
       else if(s>=T.B.min&&frac(week)<T.B.week_top_frac) t="B";
       else if(s>=T.C.min) t="C";
+      if(r.legend) t="SS";  // 70点以上などの歴史的記録はSS候補(殿堂入りは余韻で決める)
       r.tier=t; r.ss_confirmed=(t==="SS"&&r.hall_ok);
     });
   });
@@ -322,12 +323,46 @@ function renderAces(){
    Object.entries(DATA.stars).sort().map(([t,ps])=>`<div class="team"><div class="n">${t}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p">${i===0?"エース":i===1?"セカンド":"　核"}:${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px">${TIER_JA[p.tier]}</span></div>`).join("")}</div>`).join("")+`</div>`;
 }
 function renderHelp(){
-  const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc;
-  const rule={SS:`中身${T.SS.min}点以上 & 今季トップ${T.SS.season_top_n} → 30日後の余韻で殿堂入り`,S:`中身${T.S.min}点以上 & 今季の上位${T.S.season_top_frac*100}%`,A:`中身${T.A.min}点以上 & その月の上位${T.A.month_top_frac*100}%`,B:`中身${T.B.min}点以上 & その週の上位${T.B.week_top_frac*100}%`,C:`中身${T.C.min}点以上`};
-  return `<div class="legend">${["SS","S","A","B","C"].map(r=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0"><div class="badge ${r}" style="width:36px;height:36px;font-size:14px">${r}</div><div><b>${nm[r]}</b>:${ds[r]}<br>${rule[r]}</div></div>`).join("")}</div>
-  <div class="legend"><b>中身の点数</b><br>① 展開(最大40):クラッチ・延長・20点差逆転・ブザービーター<br>② スターの活躍(最大40):得点(効率込み)・守備・トリプルダブル × 選手の格<br>③ カードの格(最大20):両チーム勝ち越し・スター同士・エース欠場で減点<br>④ チーム(最大10):強み同士・今日だけ異常な攻撃/守備<br>勝負が決まった後の点(第4Q残り5分以降で20点差以上)は数えない。</div>
-  <div class="legend"><b>余韻(民衆の声)</b><br>1日後・7日後・30日後に、ニュースの媒体数・地元以外の媒体数・ハイライト動画の再生数を測る。人気チームの偏りを抑えるため、同じ夜の試合の中で何番目かに直して、真ん中の値を使う。中身の点数に最大±15点。</div>
-  <div class="legend"><b>比べる相手</b><br>レギュラーシーズンとプレーオフは別々。開幕から1ヶ月は、昨季の試合も比べる相手に混ぜてる(試合数が少ないから)。<br><br>データ:ESPN、Googleニュース、YouTube。通知は9・12・15・18・21時ごろに、SS〜Aの試合だけ(設定タブから登録)。</div>`;
+  const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc, P=DATA.points||{};
+  const sec=(t,b)=>`<div class="legend"><b style="font-size:15px">${t}</b><div style="margin-top:6px;color:var(--text);line-height:1.7">${b}</div></div>`;
+  const rule={SS:`中身${T.SS.min}点以上で今季トップ${T.SS.season_top_n}、または歴史的記録 → 30日後も語られていたら殿堂入り`,S:`中身${T.S.min}点以上で今季の上位${T.S.season_top_frac*100}%`,A:`中身${T.A.min}点以上でその月の上位${T.A.month_top_frac*100}%`,B:`中身${T.B.min}点以上でその週の上位${T.B.week_top_frac*100}%`,C:`中身${T.C.min}点以上`};
+  const tiers=["SS","S","A","B","C"].map(r=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0"><div class="badge ${r}" style="width:36px;height:36px;font-size:14px">${r}</div><div><b>${nm[r]}</b>:${ds[r]}<br><span style="color:var(--sub);font-size:12px">${rule[r]}</span></div></div>`).join("");
+  return `<div class="legend" style="color:var(--text)">このアプリは、<b>勝敗やスコアを見ずに「この試合は見る価値があるか」</b>を教えてくれる。知りたいところだけ読めばOK。</div>
+  ${sec("1. 毎日の使い方",`<ol style="padding-left:18px;margin:0">
+    <li>通知(9・12・15・18・21時ごろ)か「試合」タブで、<b>ランクが付いた試合</b>を確認</li>
+    <li>SS・S・Aなら、ハイライトじゃなく<b>本編を見る</b>のがおすすめ</li>
+    <li>見終わったら、カードの一番下「結果とスタッツを見る」で答え合わせ</li>
+    <li>ランクが自分の感覚とズレてたら、Claudeに伝えて基準を直す(これが一番大事)</li></ol>`)}
+  ${sec("2. 各タブの見方",`<b>試合</b>:今日・昨日・おとといの試合。始まる前は期待度★1〜3、終わったらランク。カードの上に欠場・出場微妙の選手と理由・復帰見込み。タップでロスターとチームの強み。<br>
+    <b>ティア表</b>:直近3日・週・月・シーズンごとのランキング。「ランク外も表示」で全試合。<br>
+    <b>殿堂</b>:SS候補と、30日後も語られて殿堂入りした試合。シーズンをまたいでずっと残る。<br>
+    <b>エース表</b>:採点に使ってる各チームのエースと格。<br>
+    <b>設定</b>:推しチーム、通知の登録、最初の説明をもう一度見る。`)}
+  ${sec("3. ネタバレ防止の仕組み",`・スコアと勝敗は、ボタンを押して<b>もう一度確認したときだけ</b>表示<br>
+    ・通知に書くのは対戦カードとランクだけ<br>
+    ・推しチームの試合は、終わってから<b>24時間</b>はランク・ティア表・通知から完全に外す(順位の抜けからもバレないように)<br>
+    ・欠場理由は項目だけ使う(ESPNの解説文は結果が書かれていることがあるので使わない)<br>
+    ・注意:ランクそのものも「接戦だったかも」のヒントにはなる`)}
+  ${sec("4. ランクの意味",tiers+`<span style="color:var(--sub);font-size:12px">ランクは「比べる範囲」で決まる。時間がたつと他の試合との比較や余韻で動く。同点なら展開の点が高い方が上。レギュラーシーズンとプレーオフは別々。</span>`)}
+  ${sec("5. 中身の点数",`<b>① 展開(最大${P.flow_cap??50})</b><br>
+    ・クラッチ(残り5分〜延長で5点差以内の時間が合計1分以上)+${P.clutch??20}<br>
+    ・延長 +${P.overtime??10}/試合全体で20点差以上の逆転 +${P.comeback20??15}<br>
+    ・終盤の猛追(残り6分以降に15点差以上ついたのを5点差以内まで詰めた)+${P.late_surge??15}<br>
+    ・終盤の大逆転(残り6分以降に15点差以上ついた側が負けた)+${P.late_upset??25}<br>
+    ・ブザービーター +${P.buzzer??15}/最後までもつれた(残り24秒で3点差以内)+${P.last_possession??15}/試合を決める守備 +${P.clutch_stop??10}<br><br>
+    <b>② スターの活躍(最大${P.star_cap??50})</b><br>
+    ・50点 ${P.pts50??45}/40点 ${P.pts40??35}/30点&高効率 ${P.pts30_ts70??25}/25点&超高効率 ${P.pts25_ts75??20}<br>
+    ・守備(ブロック5かスティール4)${P.defense??20}/トリプルダブル ${P.triple_double??20}/2つ目以降は+5ずつ<br>
+    ・これに選手の格を掛ける(MVP級×1.0/AS級×0.7/エース×0.4/その他×0.2)。試合を決めるプレーにスターが絡んだら+10<br><br>
+    <b>③ カードの格(最大20)</b>:両チーム勝率5割以上 +10/両チームのスター出場 +10/エース欠場 −5(エースがMVP級・AS級なら −10)/エースとセカンドが両方欠場 −15<br><br>
+    <b>④ チーム(最大10)</b>:強み同士の対決 +5/今日だけ異常に良い攻撃・守備 +5ずつ<br><br>
+    <b>⑤ 歴史的記録(上限なし・格は掛けない)</b>:60点 +${P.record60??20}/70点以上 +${P.record70??40}/20-20-20 +${P.record60??20}/クアドルプルダブル +${P.record70??40}。70点以上とクアドルプルダブルは自動でSS候補<br><br>
+    <span style="color:var(--sub)">勝負が決まった後(第4Q残り5分以降で20点差以上)の点は数えない。ただし、そのあと10点差以内まで詰まったら数える。</span>`)}
+  ${sec("6. 余韻(民衆の声)",`試合の1日後・7日後・30日後に、ニュースの媒体数・地元以外の媒体数・ハイライト動画の再生数などを測る。人気チームの偏りを抑えるため、同じ夜の試合の中で何番目かに直して使う。一番騒がれたら+15点、一番静かでも−5点まで。殿堂入りはこの「30日後の余韻」で決まる。`)}
+  ${sec("7. よくある疑問",`<b>Q. ランクが昨日と変わった</b><br>余韻を測ったり、比べる相手の試合が増えたりすると動くよ。<br>
+    <b>Q. 推しの試合が出てこない</b><br>終わってから24時間は隠してる。24時間たつと表に入る。<br>
+    <b>Q. 開幕直後のランクが辛い気がする</b><br>開幕から1ヶ月は試合数が少ないので、昨季の試合も比べる相手に混ぜてる。<br>
+    <b>Q. データはどこから?</b><br>ESPN、Googleニュース、YouTubeなど。1時間ごとに自動更新。`)}`;
 }
 function renderSettings(){
   const opts=`<option value="">推しなし</option>`+Object.entries(DATA.teams).map(([k,n])=>`<option value="${k}"${k===FAV?" selected":""}>${esc(n)}(${k})</option>`).join("");
