@@ -22,7 +22,7 @@ VOTE_DIR = os.path.join(HERE, "votes")
 UPGRADES = os.path.join(HERE, "upgrades.json")
 ARCHIVE = os.path.join(HERE, "archive.json")
 NEXT = {"A": "S", "S": "SS"}
-KIND_JA = {"rec70": "歴史的記録", "rec60": "60点超え", "pts50": "50点超え", "pts40": "40点超え", "td": "トリプルダブル"}
+KIND_JA = {"rec70": "歴史的記録", "rec60": "60点ゲーム", "pts50": "50点ゲーム", "pts40": "40点ゲーム", "td": "トリプルダブル"}
 KIND_ORDER = ["rec70", "rec60", "pts50", "pts40", "td"]
 
 
@@ -54,35 +54,36 @@ def buzz_avg(r):
 
 # ---------- 候補づくり ----------
 def build_candidates(month, records):
+    """候補 = 物語(慎重に・少なく)+ その月の S・A の試合"""
     games = [r for r in records if r["date"][:7] == month and r.get("tier") in ("SS", "S", "A")]
-    by_id = {r["id"]: r for r in games}
+    by_id = {r["id"]: r for r in records}
     cands = []
-    # 物語の自動検出は、基準が決まるまで止めておく(config の vote.auto_stories)
-    if not V.get("auto_stories", False):
-        games_only = True
-    else:
-        games_only = False
-    # 物語①:同じ選手が今月なんども大活躍(2試合以上)
-    players = {}
-    for r in games:
-        for name, abbr, kind in r.get("hl") or []:
-            players.setdefault((name, abbr), []).append((r["id"], kind))
-    for (name, abbr), evs in ([] if games_only else players.items()):
-        ids = sorted({i for i, _ in evs}, key=lambda i: by_id[i]["date"])
-        if len(ids) < 2:
+    # 物語①:シーズン単位の「量産」(例:ヒューストン時代のハーデンの50点ゲーム量産)。
+    #   その月に新しく1試合以上増えて、シーズン合計が基準に届いたときだけ候補にする
+    season = {r.get("season") for r in records if r["date"][:7] == month}
+    pool = sorted([r for r in records if r.get("season") in season and r.get("type") in ("regular", "playoff")
+                   and r["date"][:7] <= month], key=lambda r: r["date"])
+    for kind, need in V["story_season_counts"].items():
+        cnt = {}
+        for r in pool:
+            for name, abbr, k in r.get("hl") or []:
+                if KIND_ORDER.index(k) <= KIND_ORDER.index(kind):   # 60点は「50点以上」にも数える
+                    cnt.setdefault((name, abbr), []).append(r["id"])
+        for (name, abbr), ids in cnt.items():
+            ids = list(dict.fromkeys(ids))
+            new = [i for i in ids if by_id[i]["date"][:7] == month]
+            if len(ids) >= need and new:
+                cands.append({"key": f"p:{name}:{kind}:{month}", "kind": "story",
+                              "name": f"{last_name(name)}の{KIND_JA[kind]}量産(今季{len(ids)}回目)", "games": new})
+    # 物語②:今まさに燃えている因縁(rivalries.json に手で登録したものだけ。昔からの伝統の因縁は対象外)
+    riv = load(os.path.join(HERE, "rivalries.json"), {})
+    for key, rv in riv.items():
+        if key.startswith("_") or rv.get("type") != "hot" or rv.get("until", "9999") < month:
             continue
-        top = min((k for _, k in evs), key=KIND_ORDER.index)
-        n = sum(1 for _, k in evs if k == top)
-        label = f"{last_name(name)}({abbr})の{KIND_JA[top]}×{n}" if n >= 2 else f"{last_name(name)}({abbr})の大活躍×{len(ids)}"
-        cands.append({"key": f"p:{name}", "kind": "story", "name": label, "games": ids})
-    # 物語②:同じカードが今月2回以上ランク入り
-    pairs = {}
-    for r in games:
-        pairs.setdefault(tuple(sorted((r["home"], r["away"]))), []).append(r["id"])
-    for (a, b), ids in ([] if games_only else pairs.items()):
-        if len(ids) >= 2:
-            ids.sort(key=lambda i: by_id[i]["date"])
-            cands.append({"key": f"m:{a}-{b}", "kind": "story", "name": f"{a}×{b} 因縁の{len(ids)}戦", "games": ids})
+        a, b = key.split("-")
+        ids = [r["id"] for r in sorted(games, key=lambda r: r["date"]) if {r["home"], r["away"]} == {a, b}]
+        if ids:
+            cands.append({"key": f"r:{key}:{month}", "kind": "story", "name": rv["name"], "games": ids})
     # 1試合ずつ(S・A。SSは余韻で殿堂入りを決めるので投票しない)
     for r in sorted(games, key=lambda r: r["date"]):
         if r["tier"] in ("A", "S"):
@@ -91,7 +92,7 @@ def build_candidates(month, records):
     cands = cands[:V["max_candidates"]]
     for c in cands:
         c["detail"] = [{"id": i, "date": by_id[i]["date"], "away": by_id[i]["away"], "home": by_id[i]["home"],
-                        "tier": by_id[i]["tier"]} for i in c["games"]]
+                        "tier": by_id[i].get("tier") or "-"} for i in c["games"]]
     return cands
 
 
