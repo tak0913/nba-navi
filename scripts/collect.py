@@ -324,14 +324,21 @@ def box_players(summary):
     return out
 
 
+def has_aura(abbr, name):
+    return any(norm(p["name"]) == norm(name) and p.get("aura") for p in star_list(abbr))
+
+
 def promoted_mult(abbr, name, out_names):
-    """エースが欠場なら、次の選手の倍率を1段階上げる"""
+    """大活躍した選手の倍率。エースが欠場なら次の選手を1段上げる。華のある選手もさらに1段上げる(最大MVP級)"""
     lst = star_list(abbr)
     tier = tier_of(abbr, name)
+    up = 0
     if len(lst) >= 2 and norm(lst[0]["name"]) in out_names and norm(lst[1]["name"]) == norm(name):
-        i = TIER_ORDER.index(tier)
-        tier = TIER_ORDER[min(i + 1, len(TIER_ORDER) - 1)]
-    return CFG["tier_mult"][tier]
+        up += 1
+    if has_aura(abbr, name):
+        up += 1
+    i = TIER_ORDER.index(tier)
+    return CFG["tier_mult"][TIER_ORDER[min(i + up, len(TIER_ORDER) - 1)]]
 
 
 def score_stars(box, plays, out_by_team=None):

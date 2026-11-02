@@ -330,8 +330,8 @@ function renderHall(){
 }
 function renderAces(){
   const fav=new Set(FAV?[FAV]:[]);
-  return `<div class="legend">エースの格(暫定)。<b>MVP級</b>×1.0/<b>オールスター級</b>×0.7/<b>エース</b>×0.4/それ以外×0.2。並び順はエース→セカンドエース。エースが欠場した日は、次の選手の格が1段上がる。</div><div class="aces">`+
-   Object.entries(DATA.stars).sort().map(([t,ps])=>`<div class="team"><div class="n">${t}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p">${i===0?"エース":i===1?"セカンド":"　核"}:${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px">${TIER_JA[p.tier]}</span></div>`).join("")}</div>`).join("")+`</div>`;
+  return `<div class="legend">エースの格(暫定)。<b>MVP級</b>×1.0/<b>オールスター級</b>×0.7/<b>エース</b>×0.4/それ以外×0.2。並び順はエース→セカンドエース。エースが欠場した日は、次の選手の格が1段上がる。<b>華</b>が付いた選手(カリー・エンビード・レブロン・注目のルーキーなど)は、大活躍した夜だけ一段上の格で数える。</div><div class="aces">`+
+   Object.entries(DATA.stars).sort().map(([t,ps])=>`<div class="team"><div class="n">${t}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p">${i===0?"エース":i===1?"セカンド":"　核"}:${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px">${TIER_JA[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`).join("")+`</div>`;
 }
 function renderHelp(){
   const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc, P=DATA.points||{};
@@ -364,7 +364,7 @@ function renderHelp(){
     <b>② スターの活躍(最大${P.star_cap??50})</b><br>
     ・50点 ${P.pts50??45}/40点 ${P.pts40??35}/30点&高効率 ${P.pts30_ts70??25}/25点&超高効率 ${P.pts25_ts75??20}<br>
     ・守備(ブロック5かスティール4)${P.defense??20}/トリプルダブル ${P.triple_double??20}/2つ目以降は+5ずつ<br>
-    ・これに選手の格を掛ける(MVP級×1.0/AS級×0.7/エース×0.4/その他×0.2)。試合を決めるプレーにスターが絡んだら+10<br><br>
+    ・これに選手の格を掛ける(MVP級×1.0/AS級×0.7/エース×0.4/その他×0.2)。「華」のある選手は一段上の格で数える。試合を決めるプレーにスターが絡んだら+10<br><br>
     <b>③ カードの格(最大20)</b>:両チーム勝率5割以上 +10/両チームのスター出場 +10/エース欠場 −5(エースがMVP級・AS級なら −10)/エースとセカンドが両方欠場 −15<br><br>
     <b>④ チーム(最大10)</b>:強み同士の対決 +5/今日だけ異常に良い攻撃・守備 +5ずつ<br><br>
     <b>⑤ 歴史的記録(上限なし・格は掛けない)</b>:60点 +${P.record60??20}/70点以上 +${P.record70??40}/20-20-20 +${P.record60??20}/クアドルプルダブル +${P.record70??40}。70点以上とクアドルプルダブルは自動でSS候補<br><br>
