@@ -11,6 +11,7 @@ on:
       - "scripts/*.py"
       - "scripts/config.json"
       - "scripts/stars.json"
+      - "scripts/upgrades.json"
       - ".github/workflows/**"
   workflow_dispatch:
     inputs:
@@ -51,6 +52,14 @@ jobs:
           if [ "${{ github.event.inputs.remeasure }}" = "yes" ]; then EXTRA="--remeasure"; fi
           OUT_DIR=../docs python collect.py --rebuild $EXTRA
 
+      - name: 月末の決選投票(Bluesky)
+        env:
+          BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
+          BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+        run: |
+          cd scripts
+          python vote.py || echo "vote.py failed (続行)"
+
       - name: 通知(ntfy)
         if: github.event.schedule == '40 23,2,5,8,11 * * *' || github.event.inputs.notify == 'yes'
         env:
@@ -86,8 +95,10 @@ jobs:
           git config user.name "nba-navi-bot"
           git config user.email "nba-navi-bot@users.noreply.github.com"
           git add scripts/buzz_state.json
+          git add -A scripts/votes 2>/dev/null || true
+          git add scripts/upgrades.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
-          git commit -m "余韻の記録を更新"
+          git commit -m "余韻・決選投票の記録を更新"
           git pull --rebase && git push
 
       - uses: actions/configure-pages@v5

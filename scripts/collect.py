@@ -337,7 +337,7 @@ def promoted_mult(abbr, name, out_names):
 def score_stars(box, plays, out_by_team=None):
     """② スターの活躍(上限あり)と ⑤ 歴史的記録(上限なし・格を掛けない)を返す"""
     garbage = garbage_points(plays)
-    total, record, legend = 0.0, 0, False
+    total, record, legend, hl = 0.0, 0, False, []
     for abbr, rows in box.items():
         out_names = {norm(r["name"]) for r in rows if r["dnp"]} | (out_by_team or {}).get(abbr, set())
         for r in rows:
@@ -365,6 +365,11 @@ def score_stars(box, plays, out_by_team=None):
             elif pts >= 60: rec = P["record60"]
             if n10 >= 4: rec = max(rec, P["record70"])                       # クアドルプルダブル
             if sum(1 for c in cats if c >= 20) >= 3: rec = max(rec, P["record60"])  # 20-20-20
+            # 物語づくり用のハイライト(月末の決選投票で「同じ選手が何度も」をまとめる)
+            kind = ("rec70" if rec >= P["record70"] else "rec60" if rec else
+                    "pts50" if pts >= 50 else "pts40" if pts >= 40 else "td" if n10 >= 3 else None)
+            if kind and tier_of(abbr, r["name"]) != "other":
+                hl.append([r["name"], abbr, kind])
             if rec:
                 record += rec
                 legend = legend or rec >= P["record70"]
@@ -372,7 +377,7 @@ def score_stars(box, plays, out_by_team=None):
                 continue
             base = max(ev) + P["extra_event"] * (len(ev) - 1)
             total += base * promoted_mult(abbr, r["name"], out_names)
-    return min(P["star_cap"], round(total, 1)), record, legend
+    return min(P["star_cap"], round(total, 1)), record, legend, hl
 
 
 def card_quality(teams, out_by_team, winning):
@@ -462,7 +467,7 @@ def score_record(e, start, summary, season, strong, label=None):
             if i.get("status") in ("Out", "Suspension"):
                 out_post.setdefault(ab, set()).add(norm(i.get("athlete", {}).get("displayName", "")))
     flow, flags = score_flow(plays, home_id)
-    stars, record, legend = score_stars(box, plays, out_post)
+    stars, record, legend, hl = score_stars(box, plays, out_post)
     # 試合を決めたプレーにスター(MVP級・AS級)が関わっていたら、スターの見せ場として加点
     key = set(flags.get("_key_players", []))
     if any(r["id"] in key and is_star(tier_of(ab, r["name"])) for ab, rows in box.items() for r in rows):
@@ -475,7 +480,7 @@ def score_record(e, start, summary, season, strong, label=None):
         "id": e["id"], "date": start.date().isoformat(),
         "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
         "home": teams[0]["abbr"], "away": teams[1]["abbr"],
-        "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend,
+        "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl,
         "end_utc": plays[-1].get("wallclock") if plays else None,
         "buzz": {"d1": None, "d7": None, "d30": None},
     }
@@ -622,6 +627,24 @@ def assign_tiers(records, prev_records, today):
             r["ss_confirmed"] = bool(tier == "SS" and hall_ok(r))
         for r in pool:
             r.pop("_s", None); r.pop("_d", None)
+    return records
+
+
+TIER_RANK = {"-": 0, "C": 1, "B": 2, "A": 3, "S": 4, "SS": 5}
+UPGRADES = os.path.join(HERE, "upgrades.json")   # 月末の決選投票で決まった格上げ(vote.py が書く)
+
+
+def apply_upgrades(records):
+    """決選投票で格上げされた試合は、計算したランクより上ならそのランクにする(理由も残す)"""
+    ups = load_json(UPGRADES, {})
+    for r in records:
+        u = ups.get(r["id"])
+        if not u or not r.get("tier"):
+            continue
+        if TIER_RANK.get(u["to"], 0) > TIER_RANK.get(r["tier"], 0):
+            r["tier"] = u["to"]
+            r["ss_confirmed"] = bool(r["tier"] == "SS" and hall_ok(r))
+        r["up_from"], r["story"] = u["from"], u["why"]
     return records
 
 
@@ -864,6 +887,7 @@ def main():
         for k in ("tier", "ss_confirmed", "season_rank", "month_rank"):
             r.pop(k, None)
     assign_tiers([r for r in allrec if not is_hidden(r)], prev_records, today)
+    apply_upgrades([r for r in allrec if not is_hidden(r)])
     records = allrec
     records.sort(key=lambda r: r["date"])
     arch = {r["id"]: r for r in records}
@@ -884,7 +908,7 @@ def main():
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
             "topic_prefix": CFG["public_topic_prefix"],
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
-            "days": days, "archive": pub}
+            "days": days, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {})}
     out_dir = os.environ.get("OUT_DIR", HERE)
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
 
@@ -896,6 +920,7 @@ def main():
         favs = [fav] if fav else []
         recs = [dict(r) for r in records if not is_hidden(r, favs)]
         assign_tiers(recs, prev_records, today)
+        apply_upgrades(recs)
         channels[(fav or "none").lower()] = notify_text(now, days[0]["games"], {r["id"]: r for r in recs}, favs)
     json.dump(channels, open(os.path.join(HERE, "notify_channels.json"), "w"), ensure_ascii=False)
     print(f"OK: {sum(len(d['games']) for d in days)} recent games, archive {len(records)} games")

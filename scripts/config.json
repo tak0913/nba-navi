@@ -116,5 +116,16 @@
     "weight_down": 5
   },
   "favorite_hide_hours": 24,
-  "public_topic_prefix": "nbanavi-tak0913-"
+  "public_topic_prefix": "nbanavi-tak0913-",
+  "vote": {
+    "_note": "月末の決選投票。open_day日にBlueskyへ先月の候補を投稿、close_day日の12時に締めて「いいね+リポスト」上位winners件を1段格上げ。合計min_total票未満なら余韻(fallback_buzz_min以上)で決める",
+    "enabled": true,
+    "open_day": 2,
+    "close_day": 8,
+    "min_total": 20,
+    "winners": 3,
+    "max_candidates": 15,
+    "fallback_buzz_min": 0.75
+  },
+  "app_url": "https://tak0913.github.io/nba-navi/"
 }
