@@ -505,10 +505,17 @@ def latest_buzz(r):
     return sum(vals) / len(vals) if vals else None
 
 
+MOMENT_VER = 3   # 名場面の測り方の版。変えたら上げる(古い版の結果は捨てて測り直す)
+
+
+def _moment_ok(m):
+    return isinstance(m, list) and len(m) == 3 and m[2] == MOMENT_VER
+
+
 def moment_bonus(r):
     """名場面ボーナス:1日後・7日後に測った分の大きい方"""
     m = r.get("moment") or []
-    if len(m) != 3:          # 古い測り方(チームのいつもの伸びと比べない版)の結果は使わない
+    if not _moment_ok(m):    # 古い測り方の結果は使わない
         return 0
     return max([v for v in m[:2] if v is not None] or [0])
 
@@ -560,7 +567,9 @@ def measure_buzz(records, today, limit):
                     raw[g["id"]]["news"], raw[g["id"]]["national"] = n if n else (None, None)
                     raw[g["id"]]["yt"] = safe(B.youtube_views, a, b, gd) if day <= 7 else None
                     na, nb = star_names(g["away"]), star_names(g["home"])
-                    clip = safe(B.youtube_clip_views, a, b, gd, na, nb) if day <= 7 else None
+                    ro = roster_names(g["id"]) if day <= 7 else {}
+                    clip = safe(B.youtube_clip_views, a, b, gd, na, nb, g["away"], g["home"],
+                                ro.get(g["away"], ()), ro.get(g["home"], ())) if day <= 7 else None
                     raw[g["id"]]["clips"] = clip[0] if clip else None
                     s = gd + dt.timedelta(days=max(0, day - 1))
                     raw[g["id"]]["bsky"] = safe(B.bluesky_engagement, a, b, s, gd + dt.timedelta(days=day + 2), 3, na, nb)
@@ -577,16 +586,30 @@ def measure_buzz(records, today, limit):
                 g["buzz"][key] = B.combine([pcts[k].get(g["id"]) for k in SIGNALS])
 
 
+_ROSTERS = {}
+
+
+def roster_names(gid):
+    """その試合に出た選手の名前(チームごと)。切り抜きのタイトルが両チームの試合のものか確かめるのに使う"""
+    if gid not in _ROSTERS:
+        try:
+            box = box_players(get(f"{API}/summary?event={gid}"))
+            _ROSTERS[gid] = {ab: [r["name"] for r in rows if not r["dnp"]] for ab, rows in box.items()}
+        except Exception:
+            _ROSTERS[gid] = {}
+    return _ROSTERS[gid]
+
+
 def star_names(abbr):
     """余韻を探すときに使う主力選手の名前(エース表の順)"""
     return [p["name"] for p in star_list(abbr)]
 
 
-CLIP_HIST = os.path.join(HERE, "clip_hist.json")   # 試合ごとの「一番伸びた切り抜き1本」の再生数(チームのいつもの伸びを知るため)
+CLIP_HIST = os.path.join(HERE, "clip_hist.json")   # 試合ごとの切り抜き動画の再生数の合計(チームのいつもの伸びを知るため)
 
 
 def team_clip_base(hist, abbr, before, exclude):
-    """そのチームの、これより前の試合での「一番伸びた切り抜き1本」の再生数の真ん中の値。足りなければ None"""
+    """そのチームの、これより前の試合での切り抜き再生数(合計)の真ん中の値。足りなければ None"""
     import statistics
     vals = [h["t"] for gid, h in hist.items()
             if gid != exclude and h["d"] < before and abbr in (h["h"], h["a"]) and h.get("t")]
@@ -594,7 +617,8 @@ def team_clip_base(hist, abbr, before, exclude):
 
 
 def measure_moments(records, today):
-    """名場面:その試合で一番伸びた切り抜き動画1本が「そのチームにしては」どれだけ伸びたかを、同じ夜の試合と比べる。
+    """名場面:その試合の切り抜き動画(ショート・日本語の動画も含む)の再生数の合計が「そのチームにしては」どれだけ伸びたかを、同じ夜の試合と比べる。
+    バズったプレーは色んな人が上げ直すので、1本だけでなく合計で見る。
     いつもの伸び = 両チームの過去の試合の値(真ん中の値)の平均。過去の試合が少ないチームはその夜の真ん中の値を使う。
     倍率がその夜の1位なら top_bonus 点、上位(high_pct)なら high_bonus 点。
     ただし再生数が min_views 未満、または倍率が min_ratio 未満なら0点。1日後と7日後に1回ずつ測る"""
@@ -613,18 +637,19 @@ def measure_moments(records, today):
         for slot, day in ((0, 1), (1, 7)):
             if age < day or age > day + 3:      # 測れる時期を逃した夜は測らない(古い動画の数字は比べにくい)
                 continue
-            if all(len(g.get("moment") or []) == 3 and g["moment"][slot] is not None for g in games):
+            if all(_moment_ok(g.get("moment")) and g["moment"][slot] is not None for g in games):
                 continue
             tops = {}
             for g in games:
                 try:
                     res = B.youtube_clip_views(info[g["away"]], info[g["home"]], gd,
-                                               star_names(g["away"]), star_names(g["home"]))
+                                               star_names(g["away"]), star_names(g["home"]), g["away"], g["home"],
+                                               roster_names(g["id"]).get(g["away"], ()), roster_names(g["id"]).get(g["home"], ()))
                 except Exception:
                     res = None
-                tops[g["id"]] = res[1] if res else None
+                tops[g["id"]] = res[0] if res else None    # 切り抜き(ショート・日本語含む)の再生数の合計
                 if res:
-                    hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[1]}
+                    hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[0]}
                 time.sleep(0.4)
             got = [v for v in tops.values() if v]
             night_mid = statistics.median(got) if got else None
@@ -641,7 +666,7 @@ def measure_moments(records, today):
             pct = B.percentile_within(ratios)
             n = sum(1 for v in ratios.values() if v is not None)
             for g in games:
-                m = g.get("moment") if len(g.get("moment") or []) == 3 else [None, None, 2]   # 3つ目=測り方の版
+                m = g.get("moment") if _moment_ok(g.get("moment")) else [None, None, MOMENT_VER]   # 3つ目=測り方の版
                 g["moment"] = m
                 v, ratio, p = tops.get(g["id"]), ratios.get(g["id"]), pct.get(g["id"])
                 if v is None or ratio is None:
@@ -982,7 +1007,7 @@ def main():
         if r["id"] in bstate:
             v = bstate[r["id"]]
             r["buzz"] = {"d1": v[0], "d7": v[1], "d30": v[2]}
-            if len(v) > 3 and v[3] and len(v[3]) == 3:   # 古い版の名場面は捨てて測り直す
+            if len(v) > 3 and _moment_ok(v[3]):   # 古い版の名場面は捨てて測り直す
                 r["moment"] = v[3]
 
     # 通常の更新:直近3日を画面用に取り直し、終わった試合を記録に追加

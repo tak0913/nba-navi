@@ -120,9 +120,36 @@ def bluesky_engagement(team_a, team_b, start, end, max_pages=3, names_a=(), name
     return total
 
 
-def _yt_search(q):
-    """YouTube検索の結果を (動画ID, タイトル小文字, 再生数, 公開時期の文字) のリストで返す"""
-    h = _get("https://www.youtube.com/results?search_query=" + urllib.parse.quote(q))
+import os, unicodedata
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+try:
+    NAMES = json.load(open(os.path.join(HERE, "names_ja.json"), encoding="utf-8"))
+except Exception:
+    NAMES = {"teams": {}, "players": {}, "en": {}}
+
+# YouTube検索の「アップロード日」絞り込み(今週・今月)。ショート動画には公開日が出ないので、この絞り込みで古い動画を避ける
+SP_WEEK, SP_MONTH = "EgIIAw%3D%3D", "EgIIBA%3D%3D"
+
+
+def _plain(t):
+    """比べやすい形に:小文字・アクセント記号を外す(Dončić → doncic)"""
+    t = unicodedata.normalize("NFKD", t or "")
+    return "".join(c for c in t if not unicodedata.combining(c)).lower()
+
+
+def _short_views(txt):
+    m = re.search(r"([\d.,]+)\s*(thousand|million|billion)?\s*views?", txt or "")
+    if not m:
+        return 0
+    return int(float(m.group(1).replace(",", "")) * {"thousand": 1e3, "million": 1e6, "billion": 1e9}.get(m.group(2), 1))
+
+
+def _yt_search(q, sp=None):
+    """YouTube検索の結果を (動画ID, タイトル, 再生数, 公開時期の文字) のリストで返す。
+    ショート動画も含める(公開時期は出ないので None)"""
+    url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(q) + (f"&sp={sp}" if sp else "")
+    h = _get(url)
     m = re.search(r"var ytInitialData = (\{.*?\});</script>", h)
     if not m:
         return None
@@ -132,9 +159,15 @@ def _yt_search(q):
         if isinstance(x, dict):
             if "videoRenderer" in x:
                 v = x["videoRenderer"]
-                title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", [])).lower()
+                title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))
                 pub = v.get("publishedTimeText", {}).get("simpleText", "")
-                vids.append((v.get("videoId"), title, _views(v.get("viewCountText", {}).get("simpleText", "")), pub))
+                vids.append((v.get("videoId"), _plain(title), _views(v.get("viewCountText", {}).get("simpleText", "")), pub))
+            if "shortsLockupViewModel" in x:
+                v = x["shortsLockupViewModel"]
+                acc = v.get("accessibilityText", "")
+                vid = v.get("onTap", {}).get("innertubeCommand", {}).get("reelWatchEndpoint", {}).get("videoId")
+                title = re.sub(r",\s*[\d.,]+\s*(thousand|million|billion)?\s*views?.*$", "", acc)
+                vids.append((vid, _plain(title), _short_views(acc), None))
             for y in x.values():
                 walk(y)
         elif isinstance(x, list):
@@ -147,7 +180,7 @@ def _yt_search(q):
 def _age_days(pub):
     """「3 days ago」などをおおよその日数に。わからなければ None"""
     # 「3 days ago」と短い「3d ago」「1mo ago」の両方に対応
-    m = re.search(r"(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|mo|s|m|h|d|w|y)\b", pub.lower())
+    m = re.search(r"(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|mo|s|m|h|d|w|y)\b", (pub or "").lower())
     if not m:
         return None
     n, u = int(m.group(1)), m.group(2)
@@ -156,40 +189,93 @@ def _age_days(pub):
 
 
 def _last(name):
-    """選手名の名字(小文字)。Jr. などは飛ばす"""
-    parts = [w for w in name.lower().replace(".", "").split() if w not in ("jr", "sr", "ii", "iii", "iv")]
+    """選手名の名字(小文字・アクセントなし)。Jr. などは飛ばす"""
+    parts = [w for w in _plain(name).replace(".", "").split() if w not in ("jr", "sr", "ii", "iii", "iv")]
     return parts[-1] if parts else ""
 
 
-def youtube_clip_views(team_a, team_b, game_date, names_a=(), names_b=()):
+def _words(abbr_nick, names):
+    """タイトルで探す言葉:チームの英語名・日本語名、選手の名字・あだ名・日本語の呼び方"""
+    abbr, nick = abbr_nick
+    w = {_plain(nick)}
+    if NAMES["teams"].get(abbr):
+        w.add(NAMES["teams"][abbr])
+    for n in names:
+        if len(_last(n)) >= 4:
+            w.add(_last(n))
+        w.update(_plain(x) for x in NAMES["en"].get(n, []))
+        w.update(_plain(x) for x in NAMES["players"].get(n, []))
+    return w
+
+
+def _hit(title, words):
+    """英語の言葉は単語として(kdがkdramaに当たらないように)、日本語はそのまま含まれるかで探す"""
+    for w in words:
+        if w.isascii():
+            if re.search(r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", title):
+                return True
+        elif w in title:
+            return True
+    return False
+
+
+_CLIP_CACHE = {}
+
+
+def youtube_clip_views(team_a, team_b, game_date, names_a=(), names_b=(), abbr_a=None, abbr_b=None,
+                       roster_a=(), roster_b=()):
     """1プレーだけの切り抜き動画(フルハイライト以外)の (再生数の合計, 一番伸びた1本の再生数)。
-    名場面があった試合ほど伸びる。切り抜きは「KDがギャフォードにポスタライズ」みたいに
-    選手名だけのタイトルが多いので、チーム名に加えて主力選手の名前でも探す・数える。
-    別の日の動画を数えないよう、公開時期が試合の日とだいたい合うものだけ使う"""
+    名場面があった試合ほど伸びる。
+    - 切り抜きは「KDがギャフォードにポスタライズ」みたいに選手名だけのタイトルが多いので、主力選手の名前でも探す
+    - ショート動画も数える(バズったプレーは色んな人がショートで上げ直すので、合計が大事)
+    - 日本語の動画も数える(日本のファンの反応も「見る価値」の一部)
+    - 別の日の動画を数えないよう、普通の動画は公開時期が試合の日と合うものだけ、
+      ショートは検索をアップロード日で絞って使う
+    - どの動画も、両チームの名前(チーム名か出場選手の名字)が両方タイトルにあるものだけ数える
+      (「デュラントがギャフォードにポスタライズ」なら両チームの選手なのでOK。同じ週の別の試合の動画を避けるため)"""
     us = game_date - dt.timedelta(days=1)   # 記録の日付は日本の日付。動画のタイトルはアメリカの日付なので1日戻す
-    when = f'{us.strftime("%B")} {us.day} {us.year}'
-    queries = [f'{team_a["nick"]} {team_b["nick"]} {when}']
-    for mine, opp in ((names_a, team_b), (names_b, team_a)):
-        for n in list(mine)[:2]:
-            queries.append(f'{n} {opp["nick"]} {when}')
     since = (dt.date.today() - us).days
+    key = (team_a["nick"], team_b["nick"], us.isoformat(), since)
+    if key in _CLIP_CACHE:
+        return _CLIP_CACHE[key]
+    sp = SP_WEEK if since <= 6 else SP_MONTH
+    when = f'{us.strftime("%B")} {us.day} {us.year}'
+    ja_a, ja_b = NAMES["teams"].get(abbr_a, ""), NAMES["teams"].get(abbr_b, "")
+    queries = [(f'{team_a["nick"]} {team_b["nick"]} {when}', None)]
+    for mine, opp, opp_ja in ((names_a, team_b, ja_b), (names_b, team_a, ja_a)):
+        for n in list(mine)[:2]:
+            queries.append((f'{n} {opp["nick"]}', sp))
+            ja = NAMES["players"].get(n)
+            if ja and opp_ja:
+                queries.append((f'{ja[0]} {opp_ja}', sp))
     tol = max(2, round(since * 0.35))
-    words = {team_a["nick"].lower(), team_b["nick"].lower()} | {_last(n) for n in (*names_a, *names_b) if len(_last(n)) >= 4}
-    skip = ("full game", "highlights", "reaction", "live", "stream", "recap", "postgame", "press conference")
+    side_a = _words((abbr_a, team_a["nick"]), names_a) | {_last(n) for n in roster_a if len(_last(n)) >= 4}
+    side_b = _words((abbr_b, team_b["nick"]), names_b) | {_last(n) for n in roster_b if len(_last(n)) >= 4}
+    skip = ("full game", "highlights", "reaction", "live", "stream", "recap", "postgame", "press conference",
+            "ハイライト", "試合後", "インタビュー", "会見", "ライブ", "配信", "同時視聴")
     seen, total, top, got = set(), 0, 0, False
-    for q in queries:
-        vids = _yt_search(q)
+    for q, f in queries:
+        try:
+            vids = _yt_search(q, f)
+        except Exception:
+            vids = None
         if vids is None:
             continue
         got = True
-        for vid, title, v, pub in vids[:15]:
-            if vid in seen or any(s in title for s in skip):
+        for vid, title, v, pub in vids[:40]:
+            if not vid or vid in seen or any(s in title for s in skip):
                 continue
-            age = _age_days(pub)
-            if age is None or abs(age - since) > tol:
-                continue
-            if any(w in title for w in words):
+            if pub is None:
+                if f is None:          # 絞り込みなしの検索のショートは、いつの動画かわからないので使わない
+                    continue
+            else:
+                age = _age_days(pub)
+                if age is None or abs(age - since) > tol:
+                    continue
+            if _hit(title, side_a) and _hit(title, side_b):   # 両チームの名前があるもの=この試合の動画
                 seen.add(vid)
                 total += v
                 top = max(top, v)
-    return (total, top) if got else None
+    res = (total, top) if got else None
+    _CLIP_CACHE[key] = res
+    return res
