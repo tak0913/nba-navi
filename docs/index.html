@@ -76,6 +76,7 @@ h3:first-child{margin-top:0}
 .more .chev{display:inline-block;transition:transform .2s;font-size:12px} .card.open .more .chev{transform:rotate(180deg)}
 .btn{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:600}
 .btn.warn{border-color:#ff6b4a;color:#ff6b4a}
+.btn.fav{border-color:rgba(199,146,234,.6);color:#d7b8f3;margin-bottom:8px}
 .confirm{display:none;margin-top:8px;padding:12px;border-radius:10px;background:#2a1714;border:1px solid #5a2a22;font-size:14px}
 .confirm .acts{display:flex;gap:8px;margin-top:10px}
 .confirm .acts button{flex:1;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:14px}
@@ -146,7 +147,7 @@ th{color:var(--sub);font-weight:500}
 <div class="ob" id="ob" style="display:none"><div class="box" id="obbox"></div></div>
 
 <script>
-const APP_VER="2026-11-03b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -164,6 +165,8 @@ function loadFav(){
 }
 function isHidden(r){
   if(!FAV||(r.home!==FAV&&r.away!==FAV)) return false;
+  // 自分で見終わった(または結果を開いた)推しの試合は、もう隠さない
+  if(store.get("watched_"+r.id)==="1"||store.get("seen_"+r.id)==="1") return false;
   if(!r.end_utc) return true;
   return Date.now() < Date.parse(r.end_utc)+DATA.fav_hide_hours*3600e3;
 }
@@ -239,7 +242,7 @@ function favNote(g){
   // 終わる時刻(残り時間)は出さない。試合の長さ=延長があったかのヒントになるので
   const nm=esc(DATA.teams[FAV]||FAV);
   return g.completed
-    ?`<div class="favnote">🔒 推し(${nm})の試合だから、終わってから24時間はランクを隠してるよ。ティア表や通知にも出ない。24時間たったら出てくる</div>`
+    ?`<div class="favnote">🔒 推し(${nm})の試合だから、終わってから24時間はランクを隠してるよ。ティア表や通知にも出ない。24時間たつか、<b>見終わったら下のボタン</b>でランクが出る</div>`
     :`<div class="favnote">🔒 推し(${nm})の試合は、終わってから24時間ランクを隠すよ(ネタバレ防止)</div>`;
 }
 function upLine(r){return r.up_from&&r.up_from!==r.tier?`<div class="meta" style="color:var(--ss)">${r.up_from}→${r.tier}(${esc(r.story)})</div>`:""}
@@ -278,8 +281,13 @@ function gameCard(g){
   const [h,a]=g.teams, seen=store.get("seen_"+g.id)==="1";
   const str=g.teams.slice().reverse().map(t=>`<div class="str"><b>${t.abbr}</b>:${(g.strengths[t.abbr]||[]).length?g.strengths[t.abbr].map(esc).join("、"):"目立った強みなし(今季)"}</div>`).join("");
   let rev="";
-  if(g.completed&&g.result){
+  if(g.completed&&g.favorite){
     rev=`<div class="reveal top">
+      <button class="btn fav" data-act="wask" data-id="${g.id}">✅ 見終わった!ランクを出す</button>
+      <div class="confirm" id="wf_${g.id}">見終わった? この試合のランクと順位が表示されるよ(スコアは出ない)。<div class="acts"><button class="no" data-act="wcancel" data-id="${g.id}">まだ</button><button class="yes" data-act="watched" data-id="${g.id}">見終わった</button></div></div></div>`;
+  }
+  if(g.completed&&g.result){
+    rev+=`<div class="reveal top">
       <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">結果とスタッツを見る(ネタバレ注意)</button>
       <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div>
       <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
@@ -368,6 +376,7 @@ function renderHelp(){
   ${sec("3. ネタバレ防止の仕組み",`・スコアと勝敗は、ボタンを押して<b>もう一度確認したときだけ</b>表示<br>
     ・通知に書くのは対戦カードとランクだけ<br>
     ・推しチームの試合は、終わってから<b>24時間</b>はランク・ティア表・通知から完全に外す(順位の抜けからもバレないように)<br>
+    ・見終わったら、カードの「✅ 見終わった!ランクを出す」(または結果を開く)でその試合だけすぐランクが出る。通知はみんな共通なので24時間のまま<br>
     ・欠場理由は項目だけ使う(ESPNの解説文は結果が書かれていることがあるので使わない)<br>
     ・注意:ランクそのものも「接戦だったかも」のヒントにはなる`)}
   ${sec("4. ランクの意味",tiers+`<span style="color:var(--sub);font-size:12px">ランクは「比べる範囲」で決まる。時間がたつと他の試合との比較や余韻で動く。同点なら展開の点が高い方が上。レギュラーシーズンとプレーオフは別々。</span>`)}
@@ -394,7 +403,7 @@ function renderHelp(){
     ・投票が少なすぎたときは、余韻(ニュースや動画の盛り上がり)で代わりに決める<br>
     <span style="color:var(--sub)">SSの殿堂入りは、これまでどおり30日後の余韻で決める。</span>`)}
   ${sec("8. よくある疑問",`<b>Q. ランクが昨日と変わった</b><br>余韻を測ったり、比べる相手の試合が増えたりすると動くよ。<br>
-    <b>Q. 推しの試合が出てこない</b><br>終わってから24時間は隠してる。24時間たつと表に入る。<br>
+    <b>Q. 推しの試合が出てこない</b><br>終わってから24時間は隠してる。24時間たつか、カードの「見終わった」ボタンを押すと表に入る。<br>
     <b>Q. 開幕直後のランクが辛い気がする</b><br>開幕から1ヶ月は試合数が少ないので、昨季の試合も比べる相手に混ぜてる。<br>
     <b>Q. データはどこから?</b><br>ESPN、Googleニュース、YouTubeなど。1時間ごとに自動更新。`)}`;
 }
@@ -447,7 +456,7 @@ function renderSettings(){
     <div class="favnote" style="margin-top:10px"><b>推しを決めるとこうなる</b><br>
       ・推しの試合は、終わってから<b>24時間</b>ランクを出さない(カードには🔒推しと出る)<br>
       ・その間はティア表・殿堂・通知にも出てこない。ほかの試合の順位も推しを除いて付けるから、順位の抜けからもバレない<br>
-      ・24時間たったら普通にランクが付いて、表にも入る<br>
+      ・24時間たつか、<b>見終わって「見終わった」ボタンを押す(または結果を開く)</b>と、普通にランクが付いて表にも入る<br>
       ・ロスター・欠場情報・結果ボタンはいつも通り使える</div>
     <div style="color:var(--sub);font-size:12px;margin-top:8px">この設定はこのスマホにだけ保存される。</div></div>
   <div class="set"><h4>通知を受け取る(無料アプリ ntfy)</h4>
@@ -473,7 +482,7 @@ function obSteps(){
     ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る</li><li>カードの上に<b>欠場・出場微妙の選手</b>と、理由・復帰見込み</li><li>タップするとロスターとチームの強み</li><li>一番下の<b>「結果とスタッツを見る」</b>は、もう一度確認してから表示(うっかり防止)</li></ul>`],
     ["ティア表・殿堂・エース表",`<ul><li><b>ティア表</b>:直近3日・週・月・シーズンでランク順に並ぶ。レギュラーシーズン/プレーオフ切り替え、「ランク外も表示」で全試合</li><li><b>殿堂</b>:何年経っても語られる伝説の試合だけが残る場所</li><li><b>エース表</b>:各チームのエースと格(採点に使ってる)</li></ul>`],
     ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付け・ティア表・通知から外して、ネタバレしないようにするよ。</p>
-      <p style="font-size:13px">なので<b>推しの試合だけランクが出なくても故障じゃない</b>よ。カードには「🔒推し」と出て、24時間たったら普通にランクが付く。</p>
+      <p style="font-size:13px">なので<b>推しの試合だけランクが出なくても故障じゃない</b>よ。カードには「🔒推し」と出て、24時間たつか、見終わってカードの「見終わった」ボタンを押すと普通にランクが付く。</p>
       <select id="obfav" style="width:100%;font-size:16px;padding:10px;border-radius:10px;background:var(--panel2);color:var(--text);border:1px solid var(--line)">${opts}</select>
       <p style="color:var(--sub);font-size:12px">あとから「設定」タブで変えられる。</p>`],
     ["通知を受け取る(任意)",`<p>9・12・15・18・21時ごろ、SS〜Aの試合を<b>対戦カードとランクだけ</b>で知らせるよ。</p>
@@ -530,12 +539,16 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="copy"){const t=document.getElementById("topic").textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{el.textContent="コピーした"}).catch(()=>{el.textContent="長押しでコピーしてね"});return}
   if(act==="toggle"){document.getElementById("g_"+id).classList.toggle("open");return}
+  if(act==="wask"){document.getElementById("wf_"+id).style.display="block";el.style.display="none";return}
+  if(act==="wcancel"){document.getElementById("wf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="wask"]').style.display="";return}
+  if(act==="watched"){store.set("watched_"+id,"1");computeTiers();render();return}
   if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
     const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);
     const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block";
     document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1");
+    if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない
   }
 });
 document.getElementById("main").addEventListener("change",e=>{
