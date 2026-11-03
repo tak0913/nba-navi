@@ -6,3 +6,4 @@ scripts/notify.txt
 __pycache__/
 scripts/notify_channels.json
 scripts/bsky_daily.json
+scripts/alert.txt

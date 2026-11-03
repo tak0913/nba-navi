@@ -495,7 +495,9 @@ def score_record(e, start, summary, season, strong, label=None):
         # 出場メンバー(いつものスタメンの欠場を数えるため。画面には渡さない)
         "lineup": {ab: {"st": {r["id"]: r["name"] for r in rows if r["starter"] and not r["dnp"]},
                         "pl": [r["id"] for r in rows if not r["dnp"]],
-                        "out": sorted(out_post.get(ab, set()))} for ab, rows in box.items()},
+                        "out": sorted(out_post.get(ab, set())),
+                        "pts": {r["id"]: [r["name"], int(num(r["stats"].get("PTS")))] for r in rows if not r["dnp"]}}
+                   for ab, rows in box.items()},
         "end_utc": plays[-1].get("wallclock") if plays else None,
         "buzz": {"d1": None, "d7": None, "d30": None},
     }
@@ -507,6 +509,9 @@ def score_record(e, start, summary, season, strong, label=None):
 # ---------- 余韻 ----------
 SIGNALS = ("news", "national", "yt", "clips", "bsky")   # ニュース/地元以外/フルハイライト/切り抜き/Bluesky
 STATS = {k: 0 for k in SIGNALS}                          # 取れた件数(ログ用。中身は出さない)
+TRIES = {k: 0 for k in SIGNALS}                          # 測ろうとした件数(見張り用)
+NONZERO = {k: 0 for k in SIGNALS}                        # 0より大きい値が取れた件数(取れても全部0なら壊れている疑い)
+MOMENT_STATS = {"tries": 0, "ok": 0}
 def latest_buzz(r):
     """測れている分(1日後・7日後・30日後)の平均"""
     vals = [v for v in (r.get("buzz") or {}).values() if v is not None]
@@ -587,6 +592,9 @@ def measure_buzz(records, today, limit):
                 done += 1
             for k in SIGNALS:
                 STATS[k] += sum(1 for v in raw.values() if v.get(k) is not None)
+                NONZERO[k] += sum(1 for v in raw.values() if v.get(k))
+                if k not in ("yt", "clips") or day <= 7:
+                    TRIES[k] += len(raw)
             pcts = {k: B.percentile_within({gid: v.get(k) for gid, v in raw.items()}) for k in SIGNALS}
             for g in games:
                 g.setdefault("buzz_raw", {})[key] = raw[g["id"]]
@@ -656,6 +664,8 @@ def measure_moments(records, today):
                 except Exception:
                     res = None
                 tops[g["id"]] = res[0] if res else None    # 切り抜き(ショート・日本語含む)の再生数の合計
+                MOMENT_STATS["tries"] += 1
+                MOMENT_STATS["ok"] += 1 if res else 0
                 if res:
                     hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[0]}
                 time.sleep(0.4)
@@ -1034,6 +1044,77 @@ def bsky_daily(today, games_today, arch):
 
 
 # ---------- メイン ----------
+ALERT_STATE = os.path.join(HERE, "alert_state.json")   # 同じ知らせを何度も送らないための記録
+SIGNAL_JA = {"news": "ニュース", "national": "地元以外のニュース", "yt": "フルハイライト動画", "clips": "切り抜き動画", "bsky": "Bluesky"}
+
+
+def health_alerts():
+    """余韻の測定が壊れていないかの見張り。測ろうとした数が少ないときは判定しない"""
+    out = []
+    for k in SIGNALS:
+        n = TRIES[k]
+        if n < 6:
+            continue
+        if STATS[k] / n < 0.3:
+            out.append(f"・{SIGNAL_JA[k]}:{n}試合中{STATS[k]}試合しか測れてない(サイトの作りが変わったかも)")
+        elif STATS[k] and NONZERO[k] == 0:
+            out.append(f"・{SIGNAL_JA[k]}:{STATS[k]}試合測れたのに全部0(読み取り方が壊れてるかも)")
+    if MOMENT_STATS["tries"] >= 6 and MOMENT_STATS["ok"] / MOMENT_STATS["tries"] < 0.3:
+        out.append(f"・名場面(切り抜き):{MOMENT_STATS['tries']}試合中{MOMENT_STATS['ok']}試合しか測れてない")
+    return out
+
+
+def star_suggestions(records, today):
+    """エース表の見直し候補(月1回)。中身(勝敗)は使わず、出場と平均得点だけ見る
+    - 入れる候補:そのチームの直近15試合のうち8試合以上出て、平均22点以上なのにエース表にいない選手
+    - 外す候補:エース表にいるのに、そのチームの直近8試合に1度も出ていない選手(長期離脱・トレードかも)"""
+    by_team = {}
+    for r in sorted(records, key=lambda r: r["date"]):
+        if r.get("type") != "regular":
+            continue
+        for ab, lu in (r.get("lineup") or {}).items():
+            by_team.setdefault(ab, []).append(lu.get("pts", {}))
+    add, drop = [], []
+    for ab, games in sorted(by_team.items()):
+        listed = {norm(p["name"]) for p in star_list(ab)}
+        last15 = games[-15:]
+        tot, cnt, names = {}, {}, {}
+        for g in last15:
+            for pid, (nm, pts) in g.items():
+                tot[pid] = tot.get(pid, 0) + pts
+                cnt[pid] = cnt.get(pid, 0) + 1
+                names[pid] = nm
+        for pid, c in cnt.items():
+            ppg = tot[pid] / c
+            if c >= 8 and ppg >= 22 and norm(names[pid]) not in listed:
+                add.append(f"{ab} {names[pid]}(平均{ppg:.1f}点・{c}試合)")
+        if len(games) >= 8:
+            recent = {norm(nm) for g in games[-8:] for nm, _ in g.values()}
+            for p in star_list(ab):
+                if norm(p["name"]) not in recent:
+                    drop.append(f"{ab} {p['name']}(直近8試合出場なし)")
+    return add, drop
+
+
+def send_alerts(today, records):
+    """持ち主にだけ知らせること(見張り・エース表の見直し)を alert.txt に書く。ワークフローが NTFY_TOPIC に送る"""
+    state = load_json(ALERT_STATE, {})
+    parts = []
+    h = health_alerts()
+    if h and state.get("health") != today.isoformat():
+        parts.append("【余韻の測定がおかしいかも】\n" + "\n".join(h))
+        state["health"] = today.isoformat()
+    month = today.strftime("%Y-%m")
+    if (today.day == 1 or "--suggest-stars" in sys.argv) and state.get("stars") != month:
+        add, drop = star_suggestions(records, today)
+        if add or drop:
+            parts.append("【エース表の見直し候補】\n" + "\n".join(["入れる候補:"] + (add or ["なし"]) + ["外す候補:"] + (drop or ["なし"])))
+        state["stars"] = month
+    if parts:
+        open(os.path.join(HERE, "alert.txt"), "w").write("\n\n".join(parts))
+    json.dump(state, open(ALERT_STATE, "w"), ensure_ascii=False)
+
+
 def main():
     global NOW
     now = dt.datetime.now(JST)
@@ -1057,6 +1138,7 @@ def main():
         prev = {}
         dates = [d for d in season_dates("20260101") if d <= dt.date(2026, 7, 1)]
         backfill(dates, season, strong, prev, label="昨季・参考")
+        apply_absence(list(prev.values()))
         json.dump(sorted(prev.values(), key=lambda r: r["date"]), open(ARCHIVE_PREV, "w"), ensure_ascii=False)
         ps = {}
         for r in prev.values():
@@ -1105,6 +1187,7 @@ def main():
     if "--no-buzz" not in sys.argv:
         measure_buzz([r for r in allrec if not is_hidden(r)], today, CFG["buzz"]["max_games_per_run"])
         measure_moments([r for r in allrec if not is_hidden(r)], today)
+    send_alerts(today, allrec)
     # 隠している間のお気に入りの試合は、比べる相手にも入れない(順位の抜けからバレないように)
     for r in allrec:
         for k in ("tier", "ss_confirmed", "season_rank", "month_rank"):

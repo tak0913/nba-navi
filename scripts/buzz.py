@@ -48,7 +48,8 @@ def _views(txt):
 
 def youtube_views(team_a, team_b, game_date):
     """その試合のハイライト動画(上位の検索結果で両チーム名を含むもの)の再生数合計"""
-    q = f'{team_a["nick"]} vs {team_b["nick"]} full game highlights {game_date.strftime("%B")} {game_date.day}, {game_date.year}'
+    us = game_date - dt.timedelta(days=1)   # 記録の日付は日本の日付。動画のタイトルはアメリカの日付なので1日戻す
+    q = f'{team_a["nick"]} vs {team_b["nick"]} full game highlights {us.strftime("%B")} {us.day}, {us.year}'
     h = _get("https://www.youtube.com/results?search_query=" + urllib.parse.quote(q))
     m = re.search(r"var ytInitialData = (\{.*?\});</script>", h)
     if not m:
