@@ -473,6 +473,10 @@ def score_record(e, start, summary, season, strong, label=None):
         for i in blk.get("injuries", []):
             if i.get("status") in ("Out", "Suspension"):
                 out_post.setdefault(ab, set()).add(norm(i.get("athlete", {}).get("displayName", "")))
+    # 休養などでケガ人リストにも載らず、ボックススコアにもいないエース表の選手も欠場として数える
+    for ab, rows in box.items():
+        present = {norm(r["name"]) for r in rows}
+        out_post.setdefault(ab, set()).update(norm(p["name"]) for p in star_list(ab) if norm(p["name"]) not in present)
     flow, flags = score_flow(plays, home_id)
     stars, record, legend, hl = score_stars(box, plays, out_post)
     # 試合を決めたプレーにスター(MVP級・AS級)が関わっていたら、スターの見せ場として加点
@@ -490,7 +494,8 @@ def score_record(e, start, summary, season, strong, label=None):
         "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl,
         # 出場メンバー(いつものスタメンの欠場を数えるため。画面には渡さない)
         "lineup": {ab: {"st": {r["id"]: r["name"] for r in rows if r["starter"] and not r["dnp"]},
-                        "pl": [r["id"] for r in rows if not r["dnp"]]} for ab, rows in box.items()},
+                        "pl": [r["id"] for r in rows if not r["dnp"]],
+                        "out": sorted(out_post.get(ab, set()))} for ab, rows in box.items()},
         "end_utc": plays[-1].get("wallclock") if plays else None,
         "buzz": {"d1": None, "d7": None, "d30": None},
     }
@@ -801,7 +806,13 @@ def apply_absence(records):
                 for pid, nm in st.items():
                     cnt[pid] = cnt.get(pid, 0) + 1
                     names[pid] = nm
-            aces = {norm(p["name"]) for p in star_list(ab)}
+            # カードの格で引いているのはエース(と、エースも休んだときのセカンド)だけ。3番手以降のスターはここで数える
+            lst, outs = star_list(ab), set(lu[ab].get("out", []))
+            aces = set()
+            if lst:
+                aces.add(norm(lst[0]["name"]))
+                if len(lst) >= 2 and norm(lst[0]["name"]) in outs and norm(lst[1]["name"]) in outs:
+                    aces.add(norm(lst[1]["name"]))
             usual = [pid for pid, c in cnt.items() if c / len(hist) >= R["usual_starter_frac"]]
             missing[ab] = [names[pid] for pid in usual
                            if pid not in lu[ab]["pl"] and norm(names[pid]) not in aces]
@@ -876,12 +887,28 @@ def build_game(e, start, season, strong, roster_cache):
         lines = {}
         for c in comp["competitors"]:
             lines[c["team"]["abbreviation"]] = [int(num(x.get("value", x.get("displayValue", 0)))) for x in c.get("linescores", [])]
+        bx = {ab: [{"name": r["name"], "starter": r["starter"], "dnp": r["dnp"], "reason": r["reason"],
+                    **{k: r["stats"].get(k, "") for k in ("MIN", "PTS", "REB", "AST", "STL", "BLK", "FG", "3PT", "FT", "TO", "+/-")}}
+                   for r in rows] for ab, rows in box.items()}
+        # ボックススコアに載らない欠場者(ケガ人リストの欠場・エース表なのにいない選手)も「欠場」として下に足す
+        for ab, rows in bx.items():
+            present = {norm(r["name"]) for r in rows}
+            extra = []
+            for p in roster_cache.get(next((t["id"] for t in teams if t["abbr"] == ab), None), []):
+                nm = p["displayName"]
+                if norm(nm) in present:
+                    continue
+                st = inj.get(ab, {}).get(norm(nm))
+                if st and st["status"] in ("欠場", "出場停止"):
+                    extra.append({"name": nm, "dnp": True, "absent": True,
+                                  "reason": st["status"] + (f"・{st['detail']}" if st["detail"] else "")})
+                elif tier_of(ab, nm) != "other":
+                    extra.append({"name": nm, "dnp": True, "absent": True, "reason": "欠場・理由の発表なし"})
+            rows.extend(extra)
         g["result"] = {
             "score": {t["abbr"]: t["_score"] for t in teams},
             "linescores": lines,
-            "box": {ab: [{"name": r["name"], "starter": r["starter"], "dnp": r["dnp"], "reason": r["reason"],
-                          **{k: r["stats"].get(k, "") for k in ("MIN", "PTS", "REB", "AST", "STL", "BLK", "FG", "3PT", "FT", "TO", "+/-")}}
-                         for r in rows] for ab, rows in box.items()},
+            "box": bx,
         }
     return g, rec
 

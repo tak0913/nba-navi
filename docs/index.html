@@ -67,6 +67,10 @@ h3:first-child{margin-top:0}
 .pl .st{display:block;font-size:11px;margin-left:24px}
 .str{font-size:13px;margin:2px 0}
 .reveal{margin-top:14px}
+.reveal.top{margin:0;padding:0 14px 10px}
+.more{display:block;width:100%;background:none;border:0;border-top:1px solid var(--line);color:var(--sub);font-size:13px;padding:10px 14px;text-align:center;cursor:pointer}
+.more .c{display:none} .card.open .more .o{display:none} .card.open .more .c{display:inline}
+.more .chev{display:inline-block;transition:transform .2s} .card.open .more .chev{transform:rotate(180deg)}
 .btn{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:600}
 .btn.warn{border-color:#ff6b4a;color:#ff6b4a}
 .confirm{display:none;margin-top:8px;padding:12px;border-radius:10px;background:#2a1714;border:1px solid #5a2a22;font-size:14px}
@@ -246,7 +250,7 @@ function roster(g,t){
 }
 function boxTable(rows){
   const head=`<tr><th>選手</th><th>分</th><th>点</th><th>リバ</th><th>アシ</th><th>スティ</th><th>ブロ</th><th>FG</th><th>3P</th><th>FT</th><th>+/-</th></tr>`;
-  const body=rows.map(r=>r.dnp?`<tr class="dnp"><td>${esc(r.name)}</td><td colspan="10" style="text-align:left">出場なし${r.reason?"("+esc(r.reason)+")":""}</td></tr>`:
+  const body=rows.map(r=>r.dnp?`<tr class="dnp"><td>${esc(r.name)}</td><td colspan="10" style="text-align:left">${r.absent?esc(r.reason):`出場なし${r.reason?"("+esc(r.reason)+")":""}`}</td></tr>`:
     `<tr><td>${r.starter?"<b>":""}${esc(r.name)}${r.starter?"</b>":""}</td><td>${r.MIN}</td><td>${r.PTS}</td><td>${r.REB}</td><td>${r.AST}</td><td>${r.STL}</td><td>${r.BLK}</td><td>${r.FG}</td><td>${r["3PT"]}</td><td>${r.FT}</td><td>${r["+/-"]}</td></tr>`).join("");
   return `<div class="boxwrap"><table>${head}${body}</table></div>`;
 }
@@ -263,20 +267,19 @@ function gameCard(g){
   const str=g.teams.slice().reverse().map(t=>`<div class="str"><b>${t.abbr}</b>:${(g.strengths[t.abbr]||[]).length?g.strengths[t.abbr].map(esc).join("、"):"目立った強みなし(今季)"}</div>`).join("");
   let rev="";
   if(g.completed&&g.result){
-    rev=`<div class="reveal">
+    rev=`<div class="reveal top">
       <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">結果とスタッツを見る(ネタバレ注意)</button>
       <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div>
       <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
-  } else if(!g.completed){
-    rev=`<div class="reveal"><button class="btn" disabled style="opacity:.5">試合が終わったら結果を見られるよ</button></div>`;
   }
   return `<div class="card" id="g_${g.id}">
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span>${esc(h.abbr)}</div>
       <div class="meta">${g.start} 開始・${esc(h.short)}のホーム(${esc(g.venue)})</div>${tierLine(g)}</div>${stateLabel(g)}</div>
-    ${quick(g)}
+    ${quick(g)}${rev}
+    <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
-      <h3>チームの強み</h3>${str}${rev}</div></div>`;
+      <h3>チームの強み</h3>${str}</div></div>`;
 }
 
 function renderDay(){
