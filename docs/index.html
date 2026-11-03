@@ -148,7 +148,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03d";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03e";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -241,7 +241,8 @@ function resultHTML(g){
   const r=g.result, [h,a]=g.teams;
   const per=(r.linescores[a.abbr]||[]).map((_,i)=>i<4?`${i+1}Q`:`OT${i-3}`);
   const ls=`<div class="boxwrap"><table><tr><th></th>${per.map(p=>`<th>${p}</th>`).join("")}<th>計</th></tr>${[a,h].map(t=>`<tr><td>${t.abbr}</td>${(r.linescores[t.abbr]||[]).map(v=>`<td>${v}</td>`).join("")}<td><b>${r.score[t.abbr]}</b></td></tr>`).join("")}</table></div>`;
-  return `<div class="final"><span>${r.score[a.abbr]}<small>${a.abbr}</small></span><span style="color:var(--sub);font-size:18px">-</span><span>${r.score[h.abbr]}<small>${h.abbr}</small></span></div>
+  return `<button class="btn" data-act="hide" data-id="${g.id}" style="margin-bottom:10px">結果を閉じる ▴</button>
+    <div class="final"><span>${r.score[a.abbr]}<small>${a.abbr}</small></span><span style="color:var(--sub);font-size:18px">-</span><span>${r.score[h.abbr]}<small>${h.abbr}</small></span></div>
     <h3>クォーターごとの得点</h3>${ls}
     ${[a,h].map(t=>`<h3>${esc(t.name)}</h3>${boxTable(r.box[t.abbr]||[])}`).join("")}`;
 }
@@ -510,6 +511,14 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="wask"){document.getElementById("wf_"+id).style.display="block";el.style.display="none";return}
   if(act==="wcancel"){document.getElementById("wf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="wask"]').style.display="";return}
   if(act==="watched"){store.set("watched_"+id,"1");computeTiers();render();return}
+  if(act==="hide"){
+    // 閉じたら最初の状態に戻す(もう一度見るときはまた確認する)。推しの試合は見たことになるのでランクは出したまま
+    const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);
+    if(g&&g.teams.some(t=>t.abbr===FAV)) store.set("watched_"+id,"1");
+    store.set("seen_"+id,"");
+    const rs=document.getElementById("rs_"+id), ask=rs.closest(".reveal").querySelector('[data-act="ask"]');
+    rs.innerHTML=""; rs.style.display="none"; if(ask) ask.style.display="";
+    document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
   if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
