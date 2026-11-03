@@ -286,6 +286,11 @@ def is_star(tier):
 
 
 # ---------- 採点(試合の中身) ----------
+FLOW_JA = {"clutch": "クラッチ(終盤の接戦)", "overtime": "延長", "comeback20": "20点差以上の逆転",
+           "buzzer": "ブザービーター", "last_possession": "最後の攻撃までもつれた", "clutch_stop": "試合を決める守備",
+           "late_surge": "終盤の猛追", "late_upset": "終盤の大逆転"}
+
+
 def score_flow(plays, home_id):
     """① 展開"""
     flags = {"clutch": False, "overtime": False, "comeback20": False, "buzzer": False,
@@ -413,8 +418,8 @@ def promoted_mult(abbr, name, out_names):
     return CFG["tier_mult"][TIER_ORDER[min(i + up, len(TIER_ORDER) - 1)]]
 
 
-def score_stars(box, plays, out_by_team=None):
-    """② スターの活躍(上限あり)と ⑤ 歴史的記録(上限なし・格を掛けない)を返す"""
+def score_stars(box, plays, out_by_team=None, detail=None):
+    """② スターの活躍(上限あり)と ⑤ 歴史的記録(上限なし・格を掛けない)を返す。detail に内訳を足す"""
     garbage = garbage_points(plays)
     total, record, legend, hl = 0.0, 0, False, []
     for abbr, rows in box.items():
@@ -429,15 +434,15 @@ def score_stars(box, plays, out_by_team=None):
             ftm, fta = made_att(s.get("FT", "0-0"))
             denom = 2 * (fga + 0.44 * fta)
             ts = raw / denom if denom else 0
-            ev = []
-            if pts >= 50: ev.append(P["pts50"])
-            elif pts >= 40: ev.append(P["pts40"])
-            elif pts >= 30 and ts >= 0.70: ev.append(P["pts30_ts70"])
-            elif pts >= 25 and ts >= 0.75: ev.append(P["pts25_ts75"])
-            if num(s.get("BLK")) >= 5 or num(s.get("STL")) >= 4: ev.append(P["defense"])
+            ev, why = [], []
+            if pts >= 50: ev.append(P["pts50"]); why.append("50点以上")
+            elif pts >= 40: ev.append(P["pts40"]); why.append("40点以上")
+            elif pts >= 30 and ts >= 0.70: ev.append(P["pts30_ts70"]); why.append("30点・高効率")
+            elif pts >= 25 and ts >= 0.75: ev.append(P["pts25_ts75"]); why.append("25点・超高効率")
+            if num(s.get("BLK")) >= 5 or num(s.get("STL")) >= 4: ev.append(P["defense"]); why.append("守備")
             cats = [num(s.get(k)) for k in ("PTS", "REB", "AST", "STL", "BLK")]
             n10 = sum(1 for c in cats if c >= 10)
-            if n10 >= 3: ev.append(P["triple_double"])
+            if n10 >= 3: ev.append(P["triple_double"]); why.append("トリプルダブル")
             # ⑤ 歴史的記録:誰がやっても歴史に残るので格は掛けない
             rec = 0
             if pts >= 70: rec = P["record70"]
@@ -452,30 +457,38 @@ def score_stars(box, plays, out_by_team=None):
             if rec:
                 record += rec
                 legend = legend or rec >= P["record70"]
+                if detail is not None:
+                    detail.append({"k": "record", "who": r["name"], "pts": rec})
             if not ev:
                 continue
             base = max(ev) + P["extra_event"] * (len(ev) - 1)
-            total += base * promoted_mult(abbr, r["name"], out_names)
+            m = promoted_mult(abbr, r["name"], out_names)
+            total += base * m
+            if detail is not None:
+                detail.append({"k": "star", "who": r["name"], "team": abbr, "why": why, "base": base, "mult": m,
+                               "pts": round(base * m, 1)})
     return min(P["star_cap"], round(total, 1)), record, legend, hl
 
 
-def card_quality(teams, out_by_team, winning):
+def card_quality(teams, out_by_team, winning, detail=None):
     """③ カードの格"""
     pts = 0
+    add = (lambda txt, v: detail.append({"txt": txt, "pts": v})) if detail is not None else (lambda txt, v: None)
     if all(winning.get(t["abbr"]) for t in teams):
-        pts += P["both_winning"]
+        pts += P["both_winning"]; add("両チーム勝率5割以上", P["both_winning"])
     def has_star(abbr):
         return any(is_star(p["tier"]) and norm(p["name"]) not in out_by_team.get(abbr, set())
                    for p in star_list(abbr))
     if all(has_star(t["abbr"]) for t in teams):
-        pts += P["both_stars"]
+        pts += P["both_stars"]; add("両チームのスター出場", P["both_stars"])
     for t in teams:
         lst = star_list(t["abbr"])
         outs = out_by_team.get(t["abbr"], set())
         if len(lst) >= 2 and norm(lst[0]["name"]) in outs and norm(lst[1]["name"]) in outs:
-            pts += P["both_aces_out"]
+            pts += P["both_aces_out"]; add(f"{t['abbr']}:{lst[0]['name']}と{lst[1]['name']}が欠場", P["both_aces_out"])
         elif lst and norm(lst[0]["name"]) in outs:
-            pts += P["star_ace_out"] if is_star(lst[0]["tier"]) else P["ace_out"]
+            v = P["star_ace_out"] if is_star(lst[0]["tier"]) else P["ace_out"]
+            pts += v; add(f"{t['abbr']}:エースの{lst[0]['name']}が欠場", v)
     return max(0, min(P["card_cap"], pts))
 
 
@@ -489,7 +502,7 @@ def game_offrtg(team_stats):
     return 100 * pts / poss if poss else 0
 
 
-def team_anomaly(summary, season):
+def team_anomaly(summary, season, detail=None):
     """④ 今日だけ異常(攻撃 or 守備がいつもより大きく良かった)"""
     pts = 0
     tms = summary.get("boxscore", {}).get("teams", [])
@@ -501,8 +514,10 @@ def team_anomaly(summary, season):
         sa, sb = season.get(a, {}).get("offRtg", 0), season.get(b, {}).get("offRtg", 0)
         if sa and rt[a] >= sa + R["anomaly_rating_diff"]:
             pts += P["team_anomaly"]
+            if detail is not None: detail.append({"txt": f"{a}の攻撃がいつもより大きく良かった", "pts": P["team_anomaly"]})
         if sb and rt[b] <= sb - R["anomaly_rating_diff"]:
             pts += P["team_anomaly"]
+            if detail is not None: detail.append({"txt": f"{a}の守備がいつもより大きく良かった", "pts": P["team_anomaly"]})
     return pts
 
 
@@ -550,20 +565,35 @@ def score_record(e, start, summary, season, strong, label=None):
         present = {norm(r["name"]) for r in rows}
         out_post.setdefault(ab, set()).update(norm(p["name"]) for p in star_list(ab) if norm(p["name"]) not in present)
     flow, flags = score_flow(plays, home_id)
-    stars, record, legend, hl = score_stars(box, plays, out_post)
+    sdet, cdet, tdet = [], [], []
+    stars, record, legend, hl = score_stars(box, plays, out_post, sdet)
     # 試合を決めたプレーにスター(MVP級・AS級)が関わっていたら、スターの見せ場として加点
     key = set(flags.get("_key_players", []))
-    if any(r["id"] in key and is_star(tier_of(ab, r["name"])) for ab, rows in box.items() for r in rows):
+    moment_star = any(r["id"] in key and is_star(tier_of(ab, r["name"])) for ab, rows in box.items() for r in rows)
+    if moment_star:
         stars = min(P["star_cap"], stars + P["star_moment"])
-    card = card_quality(teams, out_post, winning)
+    card = card_quality(teams, out_post, winning, cdet)
     clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
-    team = min(P["team_cap"], clash + team_anomaly(summary, season))
+    if clash:
+        tdet.append({"txt": "強み同士の対決", "pts": clash})
+    team = min(P["team_cap"], clash + team_anomaly(summary, season, tdet))
+    # 結果を開いた人に見せる計算の内訳(ネタバレそのものなので、普段のデータには入れず別ファイルにする)
+    bd = {
+        "flow": {"pts": flow, "cap": P["flow_cap"],
+                 "items": [{"txt": FLOW_JA[k], "pts": P[k]} for k, v in flags.items() if v and k in FLOW_JA]},
+        "stars": {"pts": stars, "cap": P["star_cap"],
+                  "items": [x for x in sdet if x["k"] == "star"]
+                           + ([{"k": "moment", "pts": P["star_moment"]}] if moment_star else [])},
+        "card": {"pts": card, "cap": P["card_cap"], "items": cdet},
+        "team": {"pts": team, "cap": P["team_cap"], "items": tdet},
+        "record": {"pts": record, "items": [x for x in sdet if x["k"] == "record"]},
+    }
     st = e.get("season", {})
     rec = {
         "id": e["id"], "date": start.date().isoformat(),
         "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
         "home": teams[0]["abbr"], "away": teams[1]["abbr"],
-        "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl,
+        "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl, "bd": bd,
         # 出場メンバー(いつものスタメンの欠場を数えるため。画面には渡さない)
         "lineup": {ab: {"st": {r["id"]: r["name"] for r in rows if r["starter"] and not r["dnp"]},
                         "pl": [r["id"] for r in rows if not r["dnp"]],
@@ -1153,6 +1183,24 @@ def send_alerts(today, records):
     json.dump(state, open(ALERT_STATE, "w"), ensure_ascii=False)
 
 
+def write_breakdowns(records, out_dir):
+    """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
+    d = os.path.join(out_dir, "b")
+    os.makedirs(d, exist_ok=True)
+    W = CFG["buzz"]
+    for r in records:
+        if not r.get("bd"):
+            continue
+        b = latest_buzz(r)
+        buzz_pts = 0 if b is None else round((W["weight_up"] if b >= 0.5 else W["weight_down"]) * (b - 0.5) * 2, 1)
+        out = dict(r["bd"])
+        out["absence"] = {"pts": r.get("absence", 0), "who": r.get("absent", {})}
+        out["buzz"] = {"pts": buzz_pts, "d": r.get("buzz", {})}
+        out["moment"] = {"pts": moment_bonus(r)}
+        out["total"] = fs(r)
+        json.dump(out, open(os.path.join(d, f"{r['id']}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
+
+
 def main():
     global NOW
     now = dt.datetime.now(JST)
@@ -1264,6 +1312,7 @@ def main():
             "suggested": suggested_pairs()}
     out_dir = os.environ.get("OUT_DIR", HERE)
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
+    write_breakdowns(records, out_dir)
 
     # 通知:持ち主用(config の favorites)
     open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))

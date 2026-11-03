@@ -68,7 +68,9 @@ h3:first-child{margin-top:0}
 .pl .st{display:block;font-size:11px;margin-left:24px}
 .str{font-size:13px;margin:2px 0}
 .reveal{margin-top:14px}
-.reveal.top{margin:0;padding:0 14px 10px}
+.reveal.top{display:block;margin:0;padding:0 14px 10px;min-width:0}
+.result{min-width:0;max-width:100%}
+.boxwrap table td:first-child,.boxwrap table th:first-child{position:sticky;left:0;background:var(--panel);z-index:1}
 .more{display:flex;align-items:center;justify-content:center;gap:6px;width:calc(100% - 28px);margin:2px 14px 12px;background:rgba(74,168,255,.10);border:1px solid rgba(74,168,255,.45);border-radius:10px;color:var(--a);font-size:14px;font-weight:700;padding:10px 14px;cursor:pointer}
 .more:active{background:rgba(74,168,255,.2)}
 .card.open .more{background:var(--panel2);border-color:var(--line);color:var(--sub)}
@@ -82,6 +84,14 @@ h3:first-child{margin-top:0}
 .confirm .acts button{flex:1;padding:10px;border-radius:8px;border:none;font-weight:700;font-size:14px}
 .yes{background:#ff6b4a;color:#000} .no{background:var(--panel2);color:var(--text)}
 .result{display:none;margin-top:12px}
+.bd{margin:6px 0 14px}
+.bdtotal{font-size:15px;margin:4px 0 8px} .bdtotal b{font-size:20px}
+.bd details{border-bottom:1px solid var(--line)}
+.bd summary{display:flex;justify-content:space-between;align-items:baseline;padding:9px 2px;cursor:pointer;font-size:14px;list-style:none}
+.bd summary::-webkit-details-marker{display:none}
+.bd summary span::before{content:"▸ ";color:var(--sub)} .bd details[open] summary span::before{content:"▾ "}
+.bd summary small{color:var(--sub);font-weight:400}
+.bd ul{margin:0 0 8px;padding-left:20px;font-size:12.5px;color:var(--sub);line-height:1.6}
 .final{display:flex;justify-content:center;gap:18px;align-items:center;font-size:28px;font-weight:800;margin:6px 0 10px}
 .final span small{display:block;font-size:12px;color:var(--sub);font-weight:400;text-align:center}
 table{width:100%;border-collapse:collapse;font-size:12px}
@@ -148,7 +158,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03e";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03f";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -244,8 +254,50 @@ function resultHTML(g){
   return `<button class="btn" data-act="hide" data-id="${g.id}" style="margin-bottom:10px">結果を閉じる ▴</button>
     <div class="final"><span>${r.score[a.abbr]}<small>${a.abbr}</small></span><span style="color:var(--sub);font-size:18px">-</span><span>${r.score[h.abbr]}<small>${h.abbr}</small></span></div>
     <h3>クォーターごとの得点</h3>${ls}
+    <div class="bd" id="bd_${g.id}" data-pending="1"><div class="d">点数の内訳を読み込み中…</div></div>
     ${[a,h].map(t=>`<h3>${esc(t.name)}</h3>${boxTable(r.box[t.abbr]||[])}`).join("")}`;
 }
+// ---- 点数の内訳(結果を開いたときだけ別ファイルを読む。ネタバレなので普段のデータには入れていない) ----
+const MULT_JA={1:"MVP級",0.7:"AS級",0.4:"エース",0.2:"その他"};
+const sgn=v=>(v>0?"+":"")+(Math.round(v*10)/10);
+function bdRow(title,pts,cap,lines){
+  const body=lines.length?`<ul>${lines.map(x=>`<li>${x}</li>`).join("")}</ul>`:`<div class="d" style="padding:4px 0 6px 14px">なし</div>`;
+  return `<details><summary><span>${title}</span><b>${sgn(pts)}${cap?`<small> / ${cap}</small>`:""}</b></summary>${body}</details>`;
+}
+function clampNote(sec,lines){
+  const sum=sec.items.reduce((n,x)=>n+x.pts,0);
+  if(sum<0) lines.push(`合計${sum}点だけど、0点より下にはならない`);
+  else if(sec.cap&&sum>sec.cap) lines.push(`合計${sum}点だけど、上限の${sec.cap}点で止まる`);
+  return lines;
+}
+function renderBd(id,b){
+  const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id), tier=g&&g.tier?`(${g.tier==="-"?"ランク外":g.tier})`:"";
+  const st=b.stars.items.map(x=>x.k==="moment"?`試合を決めるプレーにスターが絡んだ ${sgn(x.pts)}`
+    :`${esc(x.who)}(${x.team}):${x.why.join("+")} ${x.base} × ${MULT_JA[x.mult]||x.mult}(${x.mult}) = ${x.pts}`);
+  const stSum=b.stars.items.reduce((n,x)=>n+x.pts,0);
+  if(stSum>b.stars.cap) st.push(`合計${Math.round(stSum*10)/10}点だけど、上限の${b.stars.cap}点で止まる`);
+  const ab=Object.entries(b.absence.who||{}).map(([t,ns])=>`${t}:${ns.map(esc).join("、")}が欠場`);
+  const pc=v=>v==null?"まだ":`${Math.round(v*100)}%`;
+  const bz=b.buzz.d||{};
+  const rows=[
+    bdRow("① 展開",b.flow.pts,b.flow.cap,b.flow.items.map(x=>`${x.txt} ${sgn(x.pts)}`)),
+    bdRow("② スターの活躍",b.stars.pts,b.stars.cap,st),
+    bdRow("③ カードの格",b.card.pts,b.card.cap,clampNote(b.card,b.card.items.map(x=>`${esc(x.txt)} ${sgn(x.pts)}`))),
+    bdRow("④ チーム",b.team.pts,b.team.cap,clampNote(b.team,b.team.items.map(x=>`${esc(x.txt)} ${sgn(x.pts)}`))),
+    b.record.pts?bdRow("⑤ 歴史的記録",b.record.pts,0,b.record.items.map(x=>`${esc(x.who)} ${sgn(x.pts)}`)):"",
+    bdRow("⑥ いつものスタメンの欠場",b.absence.pts,0,ab.concat(ab.length&&b.flow.pts>=(DATA.rules.absence_soften_flow??30)?["展開の点が高い試合なので減点は半分"]:[])),
+    bdRow("余韻(試合後にどれだけ話題になったか)",b.buzz.pts,0,[`同じ夜の試合の中での話題の大きさ(100%が一番):1日後 ${pc(bz.d1)}/7日後 ${pc(bz.d7)}/30日後 ${pc(bz.d30)}`,"測れた分の平均で決まるから、7日後・30日後に点が動くよ"]),
+    bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?["切り抜き動画が、そのチームにしては大きく伸びた"]:[]),
+  ].join("");
+  return `<h3>この試合の点数(今の時点)</h3><div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
+    <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost">投稿する</button></div>`;
+}
+function loadBd(id){
+  const el=document.getElementById("bd_"+id); if(!el) return; el.removeAttribute("data-pending");
+  fetch("b/"+id+".json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
+    .then(b=>{el.innerHTML=renderBd(id,b)}).catch(()=>{el.innerHTML='<div class="d">この試合の内訳はまだないよ</div>'});
+}
+function loadPendingBd(){document.querySelectorAll('.bd[data-pending]').forEach(e=>loadBd(e.id.slice(3)))}
 function gameCard(g){
   const [h,a]=g.teams, seen=store.get("seen_"+g.id)==="1";
   const str=g.teams.slice().reverse().map(t=>`<div class="str"><b>${t.abbr}</b>:${(g.strengths[t.abbr]||[]).length?g.strengths[t.abbr].map(esc).join("、"):"目立った強みなし(今季)"}</div>`).join("");
@@ -490,6 +542,7 @@ function render(){
   document.getElementById("upd").textContent="更新 "+DATA.generated_at.slice(5,16).replace("T"," ");
   const m=document.getElementById("main");
   m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="settings"?renderSettings():view==="post"?renderPost():renderHelp();
+  loadPendingBd();
 }
 document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
 document.getElementById("main").addEventListener("click",e=>{
@@ -504,6 +557,7 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="period"){period=el.dataset.k;render();return}
   if(act==="all"){showAll=!showAll;render();return}
   if(act==="ob"){showOb(0);return}
+  if(act==="gopost"){view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
   if(act==="goset"){view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
   if(act==="copy"){const t=document.getElementById("topic").textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{el.textContent="コピーした"}).catch(()=>{el.textContent="長押しでコピーしてね"});return}
@@ -523,7 +577,7 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
     const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);
-    const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block";
+    const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block"; loadBd(id);
     document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1");
     if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない
   }
