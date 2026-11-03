@@ -55,7 +55,8 @@
     "late_upset": 25,
     "starter_out": -3,
     "starter_out_cap": -9,
-    "both_depleted": -5
+    "both_depleted": -5,
+    "career_high": 20
   },
   "rules": {
     "clutch_seconds": 300,
@@ -84,7 +85,9 @@
     "absence_soften_mult": 0.5,
     "surprise_ratio": 2.0,
     "surprise_min_games": 3,
-    "surprise_min_pts": 25
+    "surprise_min_pts": 25,
+    "career_high_min_pts": 25,
+    "career_high_min_games": 50
   },
   "tiers": {
     "SS": {
@@ -166,5 +169,6 @@
     "min_games": 3,
     "min_samples": 3
   },
-  "favorite_hide_pad_hours": 3
+  "favorite_hide_pad_hours": 3,
+  "career_fetch_per_run": 40
 }

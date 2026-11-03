@@ -868,12 +868,73 @@ def hall_ok(r):
 
 
 # ---------- 画面用の1試合 ----------
+CAREER = {}   # 選手id → {"hi": 今季より前の最高得点, "gp": 今季より前の試合数}
+
+
+def career_before(pid, season):
+    """その選手の、今季より前のNBAでの最高得点と試合数(レギュラーシーズン+プレーオフ。プレシーズンは除く)。
+    過去の成績は変わらないので保存して使い回す"""
+    key = f"{pid}_{season}"
+    if key in CAREER:
+        return CAREER[key]
+    path = _cache_path("career", key)
+    if os.path.exists(path):
+        CAREER[key] = _cache_load(path)
+        return CAREER[key]
+    url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}/gamelog"
+    first = get(url)
+    opts = next((f["options"] for f in first.get("filters", []) if f.get("name") == "season"), [])
+    hi, gp = 0, 0
+    for o in opts:
+        try:
+            y = int(o["value"])
+        except Exception:
+            continue
+        if y >= season:
+            continue
+        d = get(f"{url}?season={y}")
+        i = d.get("names", []).index("points") if "points" in d.get("names", []) else None
+        for stype in d.get("seasonTypes", []):
+            if "Preseason" in stype.get("displayName", ""):
+                continue
+            for cat in stype.get("categories", []):
+                for ev in cat.get("events", []):
+                    try:
+                        hi = max(hi, int(float(ev["stats"][i]))); gp += 1
+                    except Exception:
+                        pass
+    CAREER[key] = {"hi": hi, "gp": gp}
+    _cache_save(path, CAREER[key])
+    return CAREER[key]
+
+
+def load_careers(records, limit):
+    """キャリアハイの判定に必要な選手(25点以上取った試合がある選手)の過去の成績を集める。1回の更新で limit 人まで"""
+    want = []
+    for r in records:
+        for lu in (r.get("lineup") or {}).values():
+            for pid, (nm, pts) in (lu.get("pts") or {}).items():
+                if pts >= R["career_high_min_pts"] and f"{pid}_{r.get('season')}" not in CAREER:
+                    want.append((pid, r.get("season")))
+    done = 0
+    for pid, season in dict.fromkeys(want):
+        if done >= limit and not os.path.exists(_cache_path("career", f"{pid}_{season}")):
+            continue
+        try:
+            fresh = not os.path.exists(_cache_path("career", f"{pid}_{season}"))
+            career_before(pid, season)
+            done += 1 if fresh else 0
+        except Exception:
+            pass
+
+
 def apply_surprise(records):
     """② の追加:その選手にしては大爆発した夜(覚醒)は、格が低くても倍率を引き上げる。
     大爆発 = 爆発が始まる前の今季平均(surprise_min_games 試合以上)の surprise_ratio 倍以上、かつ surprise_min_pts 点以上。
     1回目は最低 tier_mult.surprise1(エース級)、2試合連続から最低 tier_mult.surprise(AS級)。連続が続く限りAS級扱い。
     何度計算しても同じになるよう content_raw から計算し直す"""
     hist, streak = {}, {}   # (シーズン, 選手id) → それまでの得点 / {"n": 連続回数, "base": 爆発前の平均}
+    season_best = hist      # 今季のそれまでの得点(キャリアハイの判定にも使う)
     def judge(key, raw):
         h, st = hist.get(key, []), streak.get(key, {"n": 0, "base": None})
         if len(h) < R["surprise_min_games"]:
@@ -886,21 +947,42 @@ def apply_surprise(records):
         bd = r.get("bd")
         delta = 0.0
         if bd:
+            bd["stars"]["items"] = [x for x in bd["stars"]["items"] if not x.get("added")]   # 前回足したキャリアハイ分は消して作り直す
+            # キャリアハイ(その選手の今季より前の最高を超えた夜。25点以上、過去に50試合以上の選手だけ)
+            for ab, lu in (r.get("lineup") or {}).items():
+                for pid, (nm, pts) in (lu.get("pts") or {}).items():
+                    c = CAREER.get(f"{pid}_{r.get('season')}")
+                    if not c or pts < R["career_high_min_pts"] or c["gp"] < R["career_high_min_games"]:
+                        continue
+                    best = max([c["hi"]] + season_best.get((r.get("season"), pid), []))
+                    if pts <= best:
+                        continue
+                    x = next((x for x in bd["stars"]["items"] if x.get("k") == "star" and x.get("id") == pid), None)
+                    if x:
+                        x["career_high"] = best
+                    else:
+                        m = CFG["tier_mult"][tier_of(ab, nm)]
+                        bd["stars"]["items"].append({"k": "star", "id": pid, "who": nm, "team": ab, "why": ["キャリアハイ"],
+                                                     "base": P["career_high"], "mult": m, "mult0": m,
+                                                     "pts": round(P["career_high"] * m, 1), "raw": pts,
+                                                     "career_high": best, "added": True})
             items = [x for x in bd["stars"]["items"] if x.get("k") == "star"]
             mom = sum(x["pts"] for x in bd["stars"]["items"] if x.get("k") == "moment")
             for x in items:   # まず元の倍率に戻す(前回の計算が残っていても同じ結果になるように)
                 x.pop("surprise", None); x.pop("streak", None)
                 x["mult"] = x.get("mult0", x["mult"]); x["mult0"] = x["mult"]; x["pts"] = round(x["base"] * x["mult"], 1)
-            before = min(P["star_cap"], sum(x["pts"] for x in items) + mom)
+            before = min(P["star_cap"], sum(x["pts"] for x in items if not x.get("added")) + mom)
             for x in items:
                 ok, avg, n = judge((r.get("season"), x.get("id")), x.get("raw", 0))
-                if not ok:
-                    continue
-                floor = CFG["tier_mult"]["surprise"] if n >= 2 else CFG["tier_mult"]["surprise1"]
-                if x["mult"] < floor:   # もともと格が高い選手は変わらない(内訳にも出さない)
-                    x["mult"] = floor
+                if ok:
+                    floor = CFG["tier_mult"]["surprise"] if n >= 2 else CFG["tier_mult"]["surprise1"]
+                    if x["mult"] < floor:   # もともと格が高い選手は変わらない(内訳にも出さない)
+                        x["mult"] = floor
+                        x["pts"] = round(x["base"] * x["mult"], 1)
+                        x["surprise"], x["streak"] = round(avg, 1), n
+                if x.get("career_high") is not None and x["mult"] < CFG["tier_mult"]["surprise1"]:
+                    x["mult"] = CFG["tier_mult"]["surprise1"]   # キャリアハイの夜も、1回目の大爆発と同じく最低エース級
                     x["pts"] = round(x["base"] * x["mult"], 1)
-                    x["surprise"], x["streak"] = round(avg, 1), n
             after = min(P["star_cap"], sum(x["pts"] for x in items) + mom)
             bd["stars"]["pts"] = round(after, 1)
             delta = after - before
@@ -1368,6 +1450,10 @@ def main():
                 archive[rec["id"]] = rec
         days.append({"date": d.isoformat(), "games": [g for g, _ in res]})
 
+    if "--no-buzz" not in sys.argv:
+        load_careers(list(archive.values()), CFG.get("career_fetch_per_run", 40))
+    else:
+        load_careers(list(archive.values()), 0)   # 保存してある分だけ使う
     apply_surprise(list(archive.values()))
     apply_absence(list(archive.values()))
     prev_records = load_json(PREV_SCORES, None) or load_json(ARCHIVE_PREV, [])
