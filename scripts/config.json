@@ -19,7 +19,8 @@
     "mvp": 1.0,
     "allstar": 0.7,
     "ace": 0.4,
-    "other": 0.2
+    "other": 0.2,
+    "surprise": 0.7
   },
   "points": {
     "clutch": 20,
@@ -79,7 +80,10 @@
     "usual_starter_frac": 0.5,
     "depleted_min": 2,
     "absence_soften_flow": 30,
-    "absence_soften_mult": 0.5
+    "absence_soften_mult": 0.5,
+    "surprise_ratio": 2.0,
+    "surprise_min_games": 3,
+    "surprise_min_pts": 25
   },
   "tiers": {
     "SS": {

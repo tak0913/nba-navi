@@ -465,8 +465,8 @@ def score_stars(box, plays, out_by_team=None, detail=None):
             m = promoted_mult(abbr, r["name"], out_names)
             total += base * m
             if detail is not None:
-                detail.append({"k": "star", "who": r["name"], "team": abbr, "why": why, "base": base, "mult": m,
-                               "pts": round(base * m, 1)})
+                detail.append({"k": "star", "id": r["id"], "who": r["name"], "team": abbr, "why": why, "base": base,
+                               "mult": m, "pts": round(base * m, 1), "raw": int(raw)})
     return min(P["star_cap"], round(total, 1)), record, legend, hl
 
 
@@ -593,7 +593,8 @@ def score_record(e, start, summary, season, strong, label=None):
         "id": e["id"], "date": start.date().isoformat(),
         "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
         "home": teams[0]["abbr"], "away": teams[1]["abbr"],
-        "content": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl, "bd": bd,
+        "content": round(flow + stars + card + team + record, 1),
+        "content_raw": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl, "bd": bd,
         # 出場メンバー(いつものスタメンの欠場を数えるため。画面には渡さない)
         "lineup": {ab: {"st": {r["id"]: r["name"] for r in rows if r["starter"] and not r["dnp"]},
                         "pl": [r["id"] for r in rows if not r["dnp"]],
@@ -867,6 +868,42 @@ def hall_ok(r):
 
 
 # ---------- 画面用の1試合 ----------
+def apply_surprise(records):
+    """② の追加:その選手にしては大爆発した夜は、格が低くても見る価値が高いので倍率を引き上げる。
+    今季のそれまでの平均得点(surprise_min_games 試合以上)の surprise_ratio 倍以上、かつ surprise_min_pts 点以上取ったら、
+    格の倍率を最低 tier_mult.surprise(AS級と同じ)にする。何度計算しても同じになるよう content_raw から計算し直す"""
+    hist = {}   # 選手id → 今季のそれまでの得点
+    for r in sorted(records, key=lambda r: (r["date"], r["id"])):
+        base = r.get("content_raw", r.get("content_base", r["content"]))
+        bd = r.get("bd")
+        delta = 0.0
+        if bd:
+            items = [x for x in bd["stars"]["items"] if x.get("k") == "star"]
+            mom = sum(x["pts"] for x in bd["stars"]["items"] if x.get("k") == "moment")
+            for x in items:   # まず元の倍率に戻す(前回の計算が残っていても同じ結果になるように)
+                x.pop("surprise", None)
+                x["mult"] = x.get("mult0", x["mult"]); x["mult0"] = x["mult"]; x["pts"] = round(x["base"] * x["mult"], 1)
+            before = min(P["star_cap"], sum(x["pts"] for x in items) + mom)
+            for x in items:
+                h = hist.get((r.get("season"), x.get("id")), [])
+                if len(h) >= R["surprise_min_games"] and x.get("raw", 0) >= R["surprise_min_pts"]:
+                    avg = sum(h) / len(h)
+                    if avg > 0 and x["raw"] >= R["surprise_ratio"] * avg and x["mult"] < CFG["tier_mult"]["surprise"]:
+                        x["mult"] = CFG["tier_mult"]["surprise"]
+                        x["pts"] = round(x["base"] * x["mult"], 1)
+                        x["surprise"] = round(avg, 1)
+            after = min(P["star_cap"], sum(x["pts"] for x in items) + mom)
+            bd["stars"]["pts"] = round(after, 1)
+            delta = after - before
+        r["content_raw"] = base
+        r["content_base"] = round(base + delta, 1)
+        r["content"] = r["content_base"]
+        for lu in (r.get("lineup") or {}).values():
+            for pid, (nm, pts) in (lu.get("pts") or {}).items():
+                hist.setdefault((r.get("season"), pid), []).append(pts)
+    return records
+
+
 def apply_absence(records):
     """⑥ いつものスタメンの欠場。
     いつものスタメン = そのチームの直近 usual_window 試合で、半分以上スタメンだった選手(usual_min_games 試合たってから)。
@@ -876,7 +913,7 @@ def apply_absence(records):
     何度計算しても同じになるよう、元の点(content_base)から引き直す"""
     starts = {}   # (シーズン, チーム) → 直近の試合のスタメン一覧
     for r in sorted(records, key=lambda r: (r["date"], r["id"])):
-        r.setdefault("content_base", r["content"])
+        r.setdefault("content_base", r["content"])   # apply_surprise が先に正しい値を入れる
         lu = r.get("lineup") or {}
         missing = {}
         for ab in (r["home"], r["away"]):
@@ -1274,6 +1311,7 @@ def main():
         prev = {}
         dates = [d for d in season_dates("20260101") if d <= dt.date(2026, 7, 1)]
         backfill(dates, season, strong, prev, label="昨季・参考")
+        apply_surprise(list(prev.values()))
         apply_absence(list(prev.values()))
         json.dump(sorted(prev.values(), key=lambda r: r["date"]), open(ARCHIVE_PREV, "w"), ensure_ascii=False)
         ps = {}
@@ -1317,6 +1355,7 @@ def main():
                 archive[rec["id"]] = rec
         days.append({"date": d.isoformat(), "games": [g for g, _ in res]})
 
+    apply_surprise(list(archive.values()))
     apply_absence(list(archive.values()))
     prev_records = load_json(PREV_SCORES, None) or load_json(ARCHIVE_PREV, [])
     # 余韻の測定(お気に入りは対象外)
