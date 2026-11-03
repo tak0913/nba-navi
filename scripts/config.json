@@ -20,7 +20,8 @@
     "allstar": 0.7,
     "ace": 0.4,
     "other": 0.2,
-    "surprise": 0.7
+    "surprise": 0.7,
+    "surprise1": 0.4
   },
   "points": {
     "clutch": 20,

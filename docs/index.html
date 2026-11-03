@@ -171,7 +171,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03k";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03l";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -287,7 +287,7 @@ function renderBd(id,b){
   const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id), tier=g&&g.tier?`(${g.tier==="-"?"ランク外":g.tier})`:"";
   const st=b.stars.items.map(x=>x.k==="moment"?`試合を決めるプレーにスターが絡んだ ${sgn(x.pts)}`
     :x.surprise!=null
-      ?`${esc(x.who)}(${x.team}):${x.why.join("+")} ${x.base} × ${x.mult}(いつもは平均${x.surprise}点の選手が${x.raw}点の大爆発なので、${MULT_JA[x.mult0]||x.mult0}でもAS級扱い) = ${x.pts}`
+      ?`${esc(x.who)}(${x.team}):${x.why.join("+")} ${x.base} × ${x.mult}(いつもは平均${x.surprise}点の選手が${x.raw}点。${x.streak>=2?`${x.streak}試合連続の大爆発=覚醒中なのでAS級扱い`:"大爆発なのでエース級扱い"}) = ${x.pts}`
       :`${esc(x.who)}(${x.team}):${x.why.join("+")} ${x.base} × ${MULT_JA[x.mult]||x.mult}(${x.mult}) = ${x.pts}`);
   const stSum=b.stars.items.reduce((n,x)=>n+x.pts,0);
   if(stSum>b.stars.cap) st.push(`合計${Math.round(stSum*10)/10}点だけど、上限の${b.stars.cap}点で止まる`);
@@ -452,7 +452,7 @@ function renderHelp(){
     <b>② スターの活躍(最大${P.star_cap??50})</b><br>
     ・50点 ${P.pts50??45}/40点 ${P.pts40??35}/30点&高効率 ${P.pts30_ts70??25}/25点&超高効率 ${P.pts25_ts75??20}<br>
     ・守備(ブロック5かスティール4)${P.defense??20}/トリプルダブル ${P.triple_double??20}/2つ目以降は+5ずつ<br>
-    ・これに選手の格を掛ける(MVP級×1.0/AS級×0.7/エース×0.4/その他×0.2)。「華」のある選手は一段上の格で数える。その選手の今季平均の${R.surprise_ratio??2}倍以上(${R.surprise_min_pts??25}点以上)取った大爆発の夜は、格に関係なく最低でもAS級(×0.7)で数える。試合を決めるプレーにスターが絡んだら+10<br><br>
+    ・これに選手の格を掛ける(MVP級×1.0/AS級×0.7/エース×0.4/その他×0.2)。「華」のある選手は一段上の格で数える。その選手の今季平均の${R.surprise_ratio??2}倍以上(${R.surprise_min_pts??25}点以上)取った大爆発の夜は、1回目は最低エース級(×0.4)、2試合連続からは「覚醒中」として最低AS級(×0.7)で数える。試合を決めるプレーにスターが絡んだら+10<br><br>
     <b>③ カードの格(最大20)</b>:両チーム勝率5割以上 +10/両チームのスター出場 +10/エース欠場 −5(エースがMVP級・AS級なら −10)/エースとセカンドが両方欠場 −15<br><br>
     <b>⑥ いつものスタメンの欠場</b>:そのチームの直近${R.usual_window??10}試合で半分以上スタメンだった選手が出なかったら1人 ${P.starter_out??-3}(1チーム ${P.starter_out_cap??-9}まで。エース表の選手は③で引くので数えない)/両チームとも${R.depleted_min??2}人以上欠けたらさらに ${P.both_depleted??-5}/展開の点が${R.absence_soften_flow??30}以上の試合は半分(控え中心でももつれた試合は面白いので)<br><br>
     <b>④ チーム(最大10)</b>:強み同士の対決 +5/今日だけ異常に良い攻撃・守備 +5ずつ<br><br>

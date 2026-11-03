@@ -869,38 +869,51 @@ def hall_ok(r):
 
 # ---------- 画面用の1試合 ----------
 def apply_surprise(records):
-    """② の追加:その選手にしては大爆発した夜は、格が低くても見る価値が高いので倍率を引き上げる。
-    今季のそれまでの平均得点(surprise_min_games 試合以上)の surprise_ratio 倍以上、かつ surprise_min_pts 点以上取ったら、
-    格の倍率を最低 tier_mult.surprise(AS級と同じ)にする。何度計算しても同じになるよう content_raw から計算し直す"""
-    hist = {}   # 選手id → 今季のそれまでの得点
+    """② の追加:その選手にしては大爆発した夜(覚醒)は、格が低くても倍率を引き上げる。
+    大爆発 = 爆発が始まる前の今季平均(surprise_min_games 試合以上)の surprise_ratio 倍以上、かつ surprise_min_pts 点以上。
+    1回目は最低 tier_mult.surprise1(エース級)、2試合連続から最低 tier_mult.surprise(AS級)。連続が続く限りAS級扱い。
+    何度計算しても同じになるよう content_raw から計算し直す"""
+    hist, streak = {}, {}   # (シーズン, 選手id) → それまでの得点 / {"n": 連続回数, "base": 爆発前の平均}
+    def judge(key, raw):
+        h, st = hist.get(key, []), streak.get(key, {"n": 0, "base": None})
+        if len(h) < R["surprise_min_games"]:
+            return False, None, 0
+        base = st["base"] if st["n"] else sum(h) / len(h)
+        ok = base > 0 and raw >= R["surprise_min_pts"] and raw >= R["surprise_ratio"] * base
+        return ok, base, (st["n"] + 1 if ok else 0)
     for r in sorted(records, key=lambda r: (r["date"], r["id"])):
-        base = r.get("content_raw", r.get("content_base", r["content"]))
+        base_pts = r.get("content_raw", r.get("content_base", r["content"]))
         bd = r.get("bd")
         delta = 0.0
         if bd:
             items = [x for x in bd["stars"]["items"] if x.get("k") == "star"]
             mom = sum(x["pts"] for x in bd["stars"]["items"] if x.get("k") == "moment")
             for x in items:   # まず元の倍率に戻す(前回の計算が残っていても同じ結果になるように)
-                x.pop("surprise", None)
+                x.pop("surprise", None); x.pop("streak", None)
                 x["mult"] = x.get("mult0", x["mult"]); x["mult0"] = x["mult"]; x["pts"] = round(x["base"] * x["mult"], 1)
             before = min(P["star_cap"], sum(x["pts"] for x in items) + mom)
             for x in items:
-                h = hist.get((r.get("season"), x.get("id")), [])
-                if len(h) >= R["surprise_min_games"] and x.get("raw", 0) >= R["surprise_min_pts"]:
-                    avg = sum(h) / len(h)
-                    if avg > 0 and x["raw"] >= R["surprise_ratio"] * avg and x["mult"] < CFG["tier_mult"]["surprise"]:
-                        x["mult"] = CFG["tier_mult"]["surprise"]
-                        x["pts"] = round(x["base"] * x["mult"], 1)
-                        x["surprise"] = round(avg, 1)
+                ok, avg, n = judge((r.get("season"), x.get("id")), x.get("raw", 0))
+                if not ok:
+                    continue
+                floor = CFG["tier_mult"]["surprise"] if n >= 2 else CFG["tier_mult"]["surprise1"]
+                if x["mult"] < floor:   # もともと格が高い選手は変わらない(内訳にも出さない)
+                    x["mult"] = floor
+                    x["pts"] = round(x["base"] * x["mult"], 1)
+                    x["surprise"], x["streak"] = round(avg, 1), n
             after = min(P["star_cap"], sum(x["pts"] for x in items) + mom)
             bd["stars"]["pts"] = round(after, 1)
             delta = after - before
-        r["content_raw"] = base
-        r["content_base"] = round(base + delta, 1)
+        r["content_raw"] = base_pts
+        r["content_base"] = round(base_pts + delta, 1)
         r["content"] = r["content_base"]
+        # この試合の結果で、各選手の平均と連続記録を更新
         for lu in (r.get("lineup") or {}).values():
             for pid, (nm, pts) in (lu.get("pts") or {}).items():
-                hist.setdefault((r.get("season"), pid), []).append(pts)
+                key = (r.get("season"), pid)
+                ok, avg, n = judge(key, pts)
+                streak[key] = {"n": n, "base": avg if ok else None}
+                hist.setdefault(key, []).append(pts)
     return records
 
 
