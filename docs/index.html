@@ -19,24 +19,28 @@
 <meta name="theme-color" content="#0f1115">
 <style>
 :root{
-  --bg:#0f1115; --panel:#181b22; --panel2:#20242d; --line:#2b303b; --text:#e9ecf1; --sub:#9aa3b2;
+  --bg:#0b0d12; --panel:#151821; --panel2:#1d212c; --line:#262b37; --text:#eef1f6; --sub:#949db0; --brand:#ff7a3d;
   --ss:#f5c542; --s:#ff6b4a; --a:#4aa8ff; --b:#7bd389; --c:#8a93a3;
   --out:#ff5a5a; --q:#ffb547; --p:#7bd389;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:15px;line-height:1.5}
-header{position:sticky;top:0;padding-top:env(safe-area-inset-top);z-index:5;background:rgba(15,17,21,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Noto Sans JP",sans-serif;font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+header{position:sticky;top:0;padding-top:env(safe-area-inset-top);z-index:5;background:rgba(11,13,18,.88);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:baseline;justify-content:space-between;padding:12px 16px 4px}
-.top h1{font-size:18px;margin:0;letter-spacing:.02em}
+.top h1{font-size:19px;margin:0;letter-spacing:.04em;font-weight:800}
 .top .upd{font-size:11px;color:var(--sub)}
 nav{display:flex;gap:4px;padding:6px 10px 10px;overflow-x:auto}
-nav button{flex:none;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px}
-nav button.on{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:600}
+nav{scrollbar-width:none} nav::-webkit-scrollbar{display:none}
+nav button{flex:none;background:transparent;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;transition:all .15s}
+nav button.on{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:700}
 main{padding:12px 12px 60px;max-width:720px;margin:0 auto}
 .days{display:flex;gap:6px;margin-bottom:12px}
 .days button{flex:1;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-size:13px}
-.days button.on{border-color:var(--text);color:var(--text);font-weight:600}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.days button.on{border-color:var(--brand);color:var(--text);font-weight:700;background:rgba(255,122,61,.08)}
+.card{--tc:#3a4150;background:var(--panel);border:1.5px solid var(--line);border-radius:16px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
+.card.home{border-color:color-mix(in srgb,var(--tc) 60%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--tc) 13%,var(--panel)) 0,var(--panel) 120px)}
+.match .teams .hm{color:var(--tc);filter:brightness(1.15)}
+.match .teams .hmtag{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--bg);background:var(--tc);border-radius:4px;padding:1px 4px;margin-left:5px;vertical-align:3px}
 .card .head{padding:12px 14px;display:flex;gap:12px;align-items:center;cursor:pointer}
 .badge{flex:none;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:18px;border:2px solid currentColor}
 .badge.SS{color:var(--ss);box-shadow:0 0 14px rgba(245,197,66,.35)} .badge.S{color:var(--s)} .badge.A{color:var(--a)} .badge.B{color:var(--b)} .badge.C{color:var(--c)}
@@ -44,7 +48,7 @@ main{padding:12px 12px 60px;max-width:720px;margin:0 auto}
 .badge.fav{color:#c792ea;font-size:11px;line-height:1.4}
 .favnote{margin-top:6px;font-size:12px;line-height:1.5;color:#d7b8f3;background:rgba(199,146,234,.10);border:1px solid rgba(199,146,234,.35);border-radius:8px;padding:6px 8px}
 .match{flex:1;min-width:0}
-.match .teams{font-weight:700;font-size:16px}
+.match .teams{font-weight:800;font-size:17px;letter-spacing:.02em}
 .match .teams .at{color:var(--sub);font-weight:400;margin:0 6px}
 .match .meta{font-size:12px;color:var(--sub)}
 .state{flex:none;font-size:11px;padding:3px 8px;border-radius:999px;background:var(--panel2);color:var(--sub)}
@@ -101,10 +105,11 @@ th{color:var(--sub);font-weight:500}
 .boxwrap{overflow-x:auto;margin-bottom:10px}
 .dnp{color:var(--sub)}
 .empty{color:var(--sub);text-align:center;padding:40px 0}
+.d{font-size:12px;color:var(--sub)}
 .list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .list .item .badge{width:40px;height:40px;font-size:16px}
 .list .item .d{font-size:12px;color:var(--sub)}
-.legend{font-size:12px;color:var(--sub);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.legend{font-size:12px;color:var(--sub);background:transparent;border:0;border-left:2px solid var(--brand);padding:2px 0 2px 10px;margin:2px 0 14px;line-height:1.6}
 .legend b{color:var(--text)}
 .aces .team{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .aces .team .n{font-weight:700;margin-bottom:4px}
@@ -143,7 +148,7 @@ th{color:var(--sub);font-weight:500}
 .ob .skip{display:block;margin:10px auto 0;background:none;border:none;color:var(--sub);font-size:13px}
 .ob .tierrow{display:flex;gap:10px;align-items:center;margin:6px 0;font-size:13px}
 .ob .tierrow .badge{width:34px;height:34px;font-size:13px}
-.banner{background:#1d2433;border:1px solid #33415c;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:13px}
+.banner{background:linear-gradient(135deg,rgba(255,122,61,.12),rgba(199,146,234,.10));border:1px solid rgba(255,122,61,.35);border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:13px}
 .banner button{margin-left:6px;padding:4px 10px;border-radius:8px;border:none;background:var(--a);color:#000;font-weight:700}
 </style>
 </head>
@@ -165,7 +170,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03g";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03h";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -227,8 +232,8 @@ function favNote(g){
   // 終わる時刻(残り時間)は出さない。試合の長さ=延長があったかのヒントになるので
   const nm=esc(DATA.teams[FAV]||FAV);
   return g.completed
-    ?`<div class="favnote">🔒 推し(${nm})の試合だから、終わってから24時間はランクを隠してるよ。ティア表や通知にも出ない。24時間たつか、<b>見終わったら下のボタン</b>でランクが出る</div>`
-    :`<div class="favnote">🔒 推し(${nm})の試合は、終わってから24時間ランクを隠すよ(ネタバレ防止)</div>`;
+    ?`<div class="favnote">🔒 推しの試合なので、ランクは24時間かくしてるよ。見終わったら下のボタンで出せる</div>`
+    :`<div class="favnote">🔒 推しの試合は、終わってから24時間ランクをかくすよ</div>`;
 }
 function upLine(r){return r.up_from&&r.up_from!==r.tier?`<div class="meta" style="color:var(--ss)">${r.up_from}→${r.tier}(${esc(r.story)})</div>`:""}
 function stateLabel(g){
@@ -320,10 +325,11 @@ function gameCard(g){
       <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div>
       <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
   }
-  return `<div class="card" id="g_${g.id}">
+  const tc=(DATA.team_colors||{})[h.abbr];
+  return `<div class="card${tc?" home":""}" id="g_${g.id}"${tc?` style="--tc:${tc}"`:""}>
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
-      <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span>${esc(h.abbr)}</div>
-      <div class="meta">${g.start} 開始・${esc(h.short)}のホーム(${esc(g.venue)})</div>${tierLine(g)}</div>${stateLabel(g)}</div>
+      <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span><span class="hm">${esc(h.abbr)}</span><span class="hmtag">HOME</span></div>
+      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${tierLine(g)}</div>${stateLabel(g)}</div>
     ${quick(g)}${rev}
     <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
@@ -334,7 +340,7 @@ function renderDay(){
   const days=DATA.days;
   const tabs=`<div class="days">${days.map((d,i)=>`<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}">${i===0?"今日":i===1?"昨日":"おととい"} ${md(d.date)}</button>`).join("")}</div>`;
   const gs=days[dayIdx].games;
-  const banner=store.get("fav_set")?"":`<div class="banner"><b>推しチームを決めよう</b><br>推しの試合は自分で見るはずだから、終わってから24時間は<b>ランク・ティア表・通知に出さない</b>(ランクだけでも「接戦だったかも」がバレるので)。推しの試合だけランクが出ないのはこのためだよ<button data-act="goset">設定する</button></div>`;
+  const banner=store.get("fav_set")?"":`<div class="banner"><b>推しチームを決めよう</b> 推しの試合はランクを24時間かくして、ネタバレを防ぐよ<button data-act="goset">設定する</button></div>`;
   return banner+tabs+(gs.length?gs.map(gameCard).join(""):`<div class="empty">この日は試合なし</div>`);
 }
 function weekKey(d){const x=new Date(d+"T00:00:00Z");const w=(x.getUTCDay()+6)%7;x.setUTCDate(x.getUTCDate()-w);return x.toISOString().slice(0,10)}
@@ -368,15 +374,15 @@ function renderTiers(){
   const order=["SS","S","A","B","C","-"];
   const groups=order.map(t=>{const gs=list.filter(r=>r.tier===t);if(!gs.length)return"";
     return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div>${upLine(r)}</div></div>`).join("")}</div>`}).join("");
-  const favTop=FAV?`<div class="favnote" style="margin-bottom:10px">🔒 推し(${esc(DATA.teams[FAV]||FAV)})の試合は、終わってから24時間はこの表に出ないよ。順位の抜けからバレないように、ほかの試合の順位も推しの試合を除いて付けてる。24時間たったら入ってくる</div>`:"";
-  const note=favTop+`<div class="legend">ランクは「比べる範囲」で決まる。SS=歴代、S=シーズン、A=月、B=週の中での上位。試合の1日後・7日後・30日後に余韻(どれだけ語られてるか)を測って、順位はそのたびに動くよ。推しチームの試合は、終わってから24時間たつと表に入るよ。</div>`;
+  const favTop=FAV?`<div class="favnote" style="margin-bottom:10px">🔒 推し(${esc(FAV)})の試合は、終わってから24時間ここに出ないよ</div>`:"";
+  const note=favTop+`<div class="legend">SS=歴代・S=シーズン・A=月・B=週の中での上位。試合後の話題(余韻)で順位は動くよ</div>`;
   return head+note+(groups||`<div class="empty">この期間はまだランクが付いた試合がないよ</div>`);
 }
 function renderHall(){
   const ss=VISIBLE.filter(r=>r.tier==="SS").sort((a,b)=>b.score-a.score);
   const conf=ss.filter(r=>r.ss_confirmed), cand=ss.filter(r=>!r.ss_confirmed);
   const item=r=>`<div class="item">${tierBadge("SS",r.ss_confirmed,1)}<div><div>${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・${r.type==="regular"?"レギュラーシーズン":"プレーオフ"}・${r.season-1}-${String(r.season).slice(2)}</div></div></div>`;
-  return `<div class="legend"><b>殿堂</b>:何年経っても語られる、バスケ史に残る一戦。試合の中身でSS候補になり、30日後もまだ語られていたら殿堂入り。シーズンをまたいでずっと残るよ。</div>
+  return `<div class="legend">何年経っても語られる一戦。SS候補が30日後もまだ語られていたら殿堂入り</div>
   <h3>殿堂入り(${conf.length})</h3>${conf.length?`<div class="list">${conf.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}
   <h3>SS候補(30日後の余韻待ち)(${cand.length})</h3>${cand.length?`<div class="list">${cand.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}`;
 }
@@ -387,7 +393,8 @@ function standingsToUse(){
   return favHiddenYesterday&&S.prev?{asof:S.prev.asof,wl:S.prev.wl}:{asof:S.asof,wl:S.wl};
 }
 function aceTeam(t,ps,rank,wl,fav){
-  return `<div class="team"><div class="n"><span class="rk">${rank}</span>${t}${wl?` <small>${wl[0]}勝${wl[1]}敗</small>`:""}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p"><span class="role">${i===0?"エース":i===1?"セカンド":"核"}</span>${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px;white-space:nowrap">${TIER_SHORT[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`;
+  const tc=(DATA.team_colors||{})[t];
+  return `<div class="team"${tc?` style="border-left:3px solid ${tc}"`:""}><div class="n"><span class="rk">${rank}</span>${t}${wl?` <small>${wl[0]}勝${wl[1]}敗</small>`:""}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p"><span class="role">${i===0?"エース":i===1?"セカンド":"核"}</span>${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px;white-space:nowrap">${TIER_SHORT[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`;
 }
 function renderAces(){
   const fav=new Set(FAV?[FAV]:[]), S=standingsToUse(), east=new Set((DATA.standings||{}).east||[]);
@@ -396,8 +403,7 @@ function renderAces(){
   const order=ts=>ts.sort((a,b)=>pct(b)-pct(a)||wl(b)[0]-wl(a)[0]||wl(a)[1]-wl(b)[1]||a.localeCompare(b));
   const teams=Object.keys(DATA.stars).filter(t=>!t.startsWith("_"));
   const col=(name,ts)=>`<div class="col"><h3>${name}</h3>${order(ts).map((t,i)=>aceTeam(t,DATA.stars[t],i+1,S?wl(t):null,fav)).join("")}</div>`;
-  const note=S?`<div class="d" style="margin:0 0 8px">${md(S.asof)}までの順位で並べてるよ(今日の試合は入れてない。順位の動きで勝ち負けがわかっちゃうから)</div>`:"";
-  return `<div class="legend">エースの格(暫定)。<b>MVP級</b>×1.0/<b>オールスター級</b>×0.7/<b>エース</b>×0.4/それ以外×0.2。並び順はエース→セカンドエース。エースが欠場した日は、次の選手の格が1段上がる。<b>華</b>が付いた選手(カリー・エンビード・レブロン・注目のルーキーなど)は、大活躍した夜だけ一段上の格で数える。</div>${note}
+  return `<div class="legend">格:MVP級×1.0・AS級×0.7・エース×0.4・その他×0.2 ／ <b>華</b>=大活躍した夜は一段上${S?`<br>${md(S.asof)}までの順位順(今日の試合は入れてない)`:""}</div>
     <div class="aces two">${col("西",teams.filter(t=>!east.has(t)))}${col("東",teams.filter(t=>east.has(t)))}</div>`;
 }
 function renderHelp(){

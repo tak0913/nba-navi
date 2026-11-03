@@ -646,10 +646,29 @@ def fs(r):
     return round(base + w * (b - 0.5) * 2, 1)
 
 
+def _lum(hx):
+    try:
+        r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except Exception:
+        return 0
+    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+
+def team_color(t):
+    """チームカラー。暗い画面で見えるように、メインの色が暗すぎたらサブの色を使う"""
+    main, alt = (t.get("color") or "888888"), (t.get("alternateColor") or "888888")
+    pick = main if _lum(main) >= 0.06 else (alt if _lum(alt) > _lum(main) else main)
+    if _lum(pick) < 0.04 or pick.lower() in ("000000", "ffffff"):
+        pick = alt if alt.lower() not in ("000000", "ffffff") else "9aa3b2"
+    return "#" + pick
+
+
 def team_info():
     teams = get(f"{API}/teams")["sports"][0]["leagues"][0]["teams"]
     return {t["team"]["abbreviation"]: {"full": t["team"]["displayName"], "nick": t["team"]["name"],
-                                        "local": [t["team"]["location"], t["team"]["name"]]} for t in teams}
+                                        "local": [t["team"]["location"], t["team"]["name"]],
+                                        "color": team_color(t["team"])} for t in teams}
 
 
 def measure_buzz(records, today, limit):
@@ -1337,6 +1356,7 @@ def main():
             "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P, "moment": CFG["moment"],
             "prev": prev_records if isinstance(prev_records, dict) else {},
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
+            "team_colors": {k: v["color"] for k, v in tinfo.items()},
             "topic_prefix": CFG["public_topic_prefix"],
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
             "days": days, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
