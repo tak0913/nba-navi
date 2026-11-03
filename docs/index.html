@@ -68,9 +68,11 @@ h3:first-child{margin-top:0}
 .str{font-size:13px;margin:2px 0}
 .reveal{margin-top:14px}
 .reveal.top{margin:0;padding:0 14px 10px}
-.more{display:block;width:100%;background:none;border:0;border-top:1px solid var(--line);color:var(--sub);font-size:13px;padding:10px 14px;text-align:center;cursor:pointer}
+.more{display:flex;align-items:center;justify-content:center;gap:6px;width:calc(100% - 28px);margin:2px 14px 12px;background:rgba(74,168,255,.10);border:1px solid rgba(74,168,255,.45);border-radius:10px;color:var(--a);font-size:14px;font-weight:700;padding:10px 14px;cursor:pointer}
+.more:active{background:rgba(74,168,255,.2)}
+.card.open .more{background:var(--panel2);border-color:var(--line);color:var(--sub)}
 .more .c{display:none} .card.open .more .o{display:none} .card.open .more .c{display:inline}
-.more .chev{display:inline-block;transition:transform .2s} .card.open .more .chev{transform:rotate(180deg)}
+.more .chev{display:inline-block;transition:transform .2s;font-size:12px} .card.open .more .chev{transform:rotate(180deg)}
 .btn{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:600}
 .btn.warn{border-color:#ff6b4a;color:#ff6b4a}
 .confirm{display:none;margin-top:8px;padding:12px;border-radius:10px;background:#2a1714;border:1px solid #5a2a22;font-size:14px}
@@ -143,6 +145,7 @@ th{color:var(--sub);font-weight:500}
 <div class="ob" id="ob" style="display:none"><div class="box" id="obbox"></div></div>
 
 <script>
+const APP_VER="2026-11-03a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -277,7 +280,7 @@ function gameCard(g){
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span>${esc(h.abbr)}</div>
       <div class="meta">${g.start} 開始・${esc(h.short)}のホーム(${esc(g.venue)})</div>${tierLine(g)}</div>${stateLabel(g)}</div>
     ${quick(g)}${rev}
-    <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
+    <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
       <h3>チームの強み</h3>${str}</div></div>`;
 }
@@ -522,7 +525,10 @@ document.getElementById("main").addEventListener("click",e=>{
 document.getElementById("main").addEventListener("change",e=>{
   if(e.target.id==="favsel"){FAV=e.target.value;store.set("fav",FAV);store.set("fav_set","1");computeTiers();render()}
 });
-fetch("data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{DATA=d;loadFav();computeTiers();render();if(!store.get("onboarded"))showOb(0)}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
+fetch("data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{
+  try{ if(d.app_ver&&d.app_ver!==APP_VER&&sessionStorage.getItem("reloaded")!==d.app_ver){
+    sessionStorage.setItem("reloaded",d.app_ver); location.replace(location.pathname+"?v="+encodeURIComponent(d.app_ver)); return } }catch(e){}
+  DATA=d;loadFav();computeTiers();render();if(!store.get("onboarded"))showOb(0)}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
 </script>
 </body>
 </html>

@@ -1125,7 +1125,11 @@ def main():
     pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "flow", "end_utc", "legend")}
            | {"score": fs(r), "hall_ok": hall_ok(r)} for r in records]
     tinfo = team_info()
-    data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(),
+    try:   # 画面(index.html)の版。古い画面のままのスマホに読み込み直してもらうため
+        app_ver = re.search(r'APP_VER="([^"]+)"', open(os.path.join(HERE, "..", "docs", "index.html"), encoding="utf-8").read()).group(1)
+    except Exception:
+        app_ver = None
+    data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(), "app_ver": app_ver,
             "owner_favorites": CFG["favorites"], "fav_hide_hours": CFG.get("favorite_hide_hours", 24),
             "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P, "moment": CFG["moment"],
             "prev": prev_records if isinstance(prev_records, dict) else {},
