@@ -106,6 +106,13 @@ th{color:var(--sub);font-weight:500}
 .dnp{color:var(--sub)}
 .empty{color:var(--sub);text-align:center;padding:40px 0}
 .d{font-size:12px;color:var(--sub)}
+.why{font-size:15px;font-weight:700;margin:2px 0 4px;color:var(--text)}
+.list .item>div:nth-child(2){flex:1;min-width:0}
+.whybtn{flex:none;background:transparent;border:1px solid var(--line);color:var(--sub);border-radius:10px;padding:5px 9px;font-size:12px;line-height:1.2;text-align:center}
+.whybtn small{display:block;font-size:9px;color:#6d7586}
+.whybtn.on{border-color:var(--brand);color:var(--brand)}
+.whyin{font-size:12.5px;color:var(--text);margin-top:3px;font-weight:600}
+.whyin:empty{display:none}
 .sec{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin:4px 2px 8px}
 .list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .list .item .badge{width:40px;height:40px;font-size:16px}
@@ -171,7 +178,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03m";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03o";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -255,6 +262,8 @@ function roster(g,t){
   return `<div class="roster"><div class="ttl">${esc(t.short)} <small>${t.homeAway==="home"?"ホーム":"アウェイ"}</small></div>${rows}</div>`;
 }
 function boxTable(rows){
+  // 出た選手は得点の多い順(スタメンは太字のまま)、出なかった選手は下
+  rows=rows.filter(r=>!r.dnp).sort((a,b)=>(+b.PTS||0)-(+a.PTS||0)).concat(rows.filter(r=>r.dnp));
   const head=`<tr><th>選手</th><th>分</th><th>点</th><th>リバ</th><th>アシ</th><th>スティ</th><th>ブロ</th><th>FG</th><th>3P</th><th>FT</th><th>+/-</th></tr>`;
   const body=rows.map(r=>r.dnp?`<tr class="dnp"><td>${esc(r.name)}</td><td colspan="10" style="text-align:left">${r.absent?esc(r.reason):`出場なし${r.reason?"("+esc(r.reason)+")":""}`}</td></tr>`:
     `<tr><td>${r.starter?"<b>":""}${esc(r.name)}${r.starter?"</b>":""}</td><td>${r.MIN}</td><td>${r.PTS}</td><td>${r.REB}</td><td>${r.AST}</td><td>${r.STL}</td><td>${r.BLK}</td><td>${r.FG}</td><td>${r["3PT"]}</td><td>${r.FT}</td><td>${r["+/-"]}</td></tr>`).join("");
@@ -305,7 +314,7 @@ function renderBd(id,b){
     bdRow("余韻(試合後にどれだけ話題になったか)",b.buzz.pts,0,[`同じ夜の試合の中での話題の大きさ(100%が一番):1日後 ${pc(bz.d1)}/7日後 ${pc(bz.d7)}/30日後 ${pc(bz.d30)}`,"測れた分の平均で決まるから、7日後・30日後に点が動くよ"]),
     bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?["切り抜き動画が、そのチームにしては大きく伸びた"]:[]),
   ].join("");
-  return `<h3>この試合の点数(今の時点)</h3><div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
+  return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div><div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
     <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost">投稿する</button></div>`;
 }
 function loadBd(id){
@@ -388,7 +397,7 @@ function renderTiers(){
   head+=`<div class="days"><button data-act="all" class="${showAll?"on":""}">ランク外も表示(この期間 全${total}試合)</button></div>`;
   const order=["SS","S","A","B","C","-"];
   const groups=order.map(t=>{const gs=list.filter(r=>r.tier===t);if(!gs.length)return"";
-    return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div>${upLine(r)}</div></div>`).join("")}</div>`}).join("");
+    return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div>${upLine(r)}<div class="whyin" id="wy_${r.id}"></div></div><button class="whybtn" data-act="why" data-id="${r.id}">理由<small>ネタバレ</small></button></div>`).join("")}</div>`}).join("");
   const favTop=FAV?`<div class="favnote" style="margin-bottom:10px">🔒 推し(${esc(FAV)})の試合は、終わってから24時間ここに出ないよ</div>`:"";
   const note=favTop+`<div class="legend">SS=歴代・S=シーズン・A=月・B=週の中での上位。試合後の話題(余韻)で順位は動くよ</div>`;
   return head+note+(groups||`<div class="empty">この期間はまだランクが付いた試合がないよ</div>`);
@@ -608,6 +617,13 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="wask"){document.getElementById("wf_"+id).style.display="block";el.style.display="none";return}
   if(act==="wcancel"){document.getElementById("wf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="wask"]').style.display="";return}
   if(act==="watched"){store.set("watched_"+id,"1");computeTiers();render();return}
+  if(act==="why"){
+    const box=document.getElementById("wy_"+id); if(!box) return;
+    if(box.textContent){box.textContent="";el.classList.remove("on");return}
+    el.classList.add("on"); box.textContent="…";
+    fetch("b/"+id+".json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
+      .then(b=>{box.textContent=b.why||"理由はまだないよ"}).catch(()=>{box.textContent="理由はまだないよ"});
+    return}
   if(act==="hide"){
     // 閉じたら最初の状態に戻す(もう一度見るときはまた確認する)。推しの試合は見たことになるのでランクは出したまま
     const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);

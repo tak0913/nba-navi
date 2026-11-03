@@ -1365,6 +1365,60 @@ def standings_snapshots(today):
     return snaps
 
 
+NAMES_JA = load_json(os.path.join(HERE, "names_ja.json"), {"players": {}})
+STAR_WHY = {"50点以上": "50点超え", "40点以上": "40点超え", "30点・高効率": "高効率の30点超え", "25点・超高効率": "超高効率の25点超え",
+            "守備": "守備で大暴れ", "トリプルダブル": "トリプルダブル", "キャリアハイ": "キャリアハイ"}
+
+
+def short_name(name):
+    ja = NAMES_JA.get("players", {}).get(name)
+    if ja:
+        return ja[1] if len(ja) > 1 else ja[0]
+    parts = [w for w in name.split() if w.rstrip(".") not in ("Jr", "Sr", "II", "III", "IV")]
+    return parts[-1] if parts else name
+
+
+def why_line(out):
+    """なぜこのランクなのかの一言(内訳の点が大きい順に2つまで)。結果を開いた人・タップした人にだけ見せる"""
+    cand = []
+    fl = {x["txt"]: x["pts"] for x in out["flow"]["items"]}
+    close = [k for k in ("クラッチ(終盤の接戦)", "最後の攻撃までもつれた") if k in fl]
+    if close:
+        cand.append((sum(fl.pop(k) for k in close), "最後までもつれた接戦" if len(close) == 2 else ("終盤の接戦" if "クラッチ(終盤の接戦)" in close else "最後の攻撃までもつれた")))
+    for k, v in fl.items():
+        cand.append((v, {"終盤の大逆転": "終盤の大逆転", "20点差以上の逆転": "20点差からの逆転", "ブザービーター": "ブザービーター",
+                         "延長": "延長戦", "終盤の猛追": "終盤の猛追", "試合を決める守備": "試合を決める守備"}.get(k, k)))
+    stars = sorted([x for x in out["stars"]["items"] if x.get("k") == "star"], key=lambda x: -x["pts"])
+    for x in stars[:2]:
+        w = "キャリアハイ" if x.get("career_high") is not None and "キャリアハイ" not in x["why"] and x["why"][0] not in ("50点以上", "40点以上") else x["why"][0]
+        tag = "(覚醒中)" if (x.get("streak") or 0) >= 2 else ""
+        cand.append((x["pts"], f"{short_name(x['who'])}{tag}の{STAR_WHY.get(w, w)}", x.get("raw", 0)))
+    if any(x.get("k") == "moment" for x in out["stars"]["items"]):
+        cand.append((P["star_moment"], "スターが試合を決めた"))
+    if out["record"]["pts"]:
+        cand.append((out["record"]["pts"] + 50, "歴史的な記録"))
+    if out["card"]["pts"] >= P["card_cap"]:
+        cand.append((out["card"]["pts"] * 0.6, "豪華カード"))
+    if out["buzz"]["pts"] >= 8:
+        cand.append((out["buzz"]["pts"], "試合後も大きな話題"))
+    if out["moment"]["pts"]:
+        cand.append((out["moment"]["pts"], "名場面がバズった"))
+    cand = [c for c in cand if c[0] > 0]
+    cand.sort(key=lambda c: -c[0])
+    if not cand:
+        neg = []
+        if out["absence"]["pts"] <= -6 or any(x["pts"] < 0 for x in out["card"]["items"]):
+            neg.append("主力の欠場")
+        return "見せ場が少なかった" + (f"({'・'.join(neg)}も響いた)" if neg else "")
+    top = cand[:2]
+    if all(len(c) > 2 for c in top):   # 選手が2人並ぶときは、実際に点を多く取った順
+        top.sort(key=lambda c: -c[2])
+    line = "+".join(dict.fromkeys(c[1] for c in top))
+    if out["absence"]["pts"] <= -6:
+        line += "(主力欠場で減点)"
+    return line
+
+
 def write_breakdowns(records, out_dir):
     """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
     d = os.path.join(out_dir, "b")
@@ -1380,6 +1434,7 @@ def write_breakdowns(records, out_dir):
         out["buzz"] = {"pts": buzz_pts, "d": r.get("buzz", {})}
         out["moment"] = {"pts": moment_bonus(r)}
         out["total"] = fs(r)
+        out["why"] = why_line(out)
         json.dump(out, open(os.path.join(d, f"{r['id']}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
 
 
