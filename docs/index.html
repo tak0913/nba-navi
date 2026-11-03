@@ -146,8 +146,9 @@ th{color:var(--sub);font-weight:500}
 <main id="main"><div class="empty">読み込み中…</div></main>
 <div class="ob" id="ob" style="display:none"><div class="box" id="obbox"></div></div>
 
+<script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03d";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -167,49 +168,16 @@ function isHidden(r){
   if(!FAV||(r.home!==FAV&&r.away!==FAV)) return false;
   // 自分で見終わった(または結果を開いた)推しの試合は、もう隠さない
   if(store.get("watched_"+r.id)==="1"||store.get("seen_"+r.id)==="1") return false;
-  if(!r.end_utc) return true;
-  return Date.now() < Date.parse(r.end_utc)+DATA.fav_hide_hours*3600e3;
+  // 終わった時刻はデータに入れていない(延長のヒントになるので)。始まった時刻+余裕+24時間で数える
+  if(!r.start_utc) return true;
+  return Date.now() < Date.parse(r.start_utc)+(DATA.fav_hide_hours+(DATA.fav_hide_pad_hours??3))*3600e3;
 }
-// ---- ランク付け(サーバーの assign_tiers と同じ計算。推しを除いてこのスマホで計算) ----
-function weekStart(d){const x=new Date(d+"T00:00:00Z");x.setUTCDate(x.getUTCDate()-((x.getUTCDay()+6)%7));return x.toISOString().slice(0,10)}
-function daysBetween(a,b){return Math.round((Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/864e5)}
+// ---- ランク付け(計算は tiers.js。サーバーの通知づくりも同じファイルを使う。推しを除いてこのスマホで計算) ----
+const weekStart=Tiers.weekStart, daysBetween=Tiers.daysBetween;
 function computeTiers(){
-  const T=DATA.tiers, R=DATA.rules;
   VISIBLE=DATA.archive.filter(r=>!isHidden(r));
   DATA.archive.forEach(r=>{r.tier=null;r.ss_confirmed=false;r.season_rank=null;r.month_rank=null;r.up_from=null;r.story=null});
-  const pools={};
-  VISIBLE.forEach(r=>{(pools[r.season+"|"+r.type]=pools[r.season+"|"+r.type]||[]).push(r)});
-  const gt=(arr,s)=>arr.reduce((n,v)=>n+(v>s?1:0),0);
-  Object.values(pools).forEach(pool=>{
-    const typ=pool[0].type, first=pool.map(r=>r.date).sort()[0];
-    const helper=daysBetween(DATA.today,first)<=R.prev_season_helper_days?(DATA.prev[typ]||[]):[];
-    const seasonScores=pool.map(r=>r.score).concat(helper);
-    const months={},weeks={};
-    pool.forEach(r=>{(months[r.date.slice(0,7)]=months[r.date.slice(0,7)]||[]).push(r.score);const w=weekStart(r.date);(weeks[w]=weeks[w]||[]).push(r.score)});
-    pool.forEach(r=>{
-      const s=r.score;
-      let month=months[r.date.slice(0,7)];
-      if(month.length<R.min_month_pool) month=pool.filter(x=>{const k=daysBetween(r.date,x.date);return (k>=0&&k<30)||x.date.slice(0,7)===r.date.slice(0,7)}).map(x=>x.score);
-      const ws=weekStart(r.date); let week=weeks[ws];
-      if(week.length<R.min_week_pool) week=pool.filter(x=>{const k=daysBetween(r.date,x.date);return (k>=0&&k<7)||weekStart(x.date)===ws}).map(x=>x.score);
-      const frac=a=>gt(a,s)/Math.max(1,a.length);
-      r.season_rank=1+pool.filter(x=>x.score>s||(x.score===s&&x.flow>r.flow)).length;
-      r.month_rank=1+gt(month,s);
-      let t="-";
-      if(s>=T.SS.min&&1+gt(seasonScores,s)<=T.SS.season_top_n) t="SS";
-      else if(s>=T.S.min&&frac(seasonScores)<T.S.season_top_frac) t="S";
-      else if(s>=T.A.min&&frac(month)<T.A.month_top_frac) t="A";
-      else if(s>=T.B.min&&frac(week)<T.B.week_top_frac) t="B";
-      else if(s>=T.C.min) t="C";
-      if(r.legend) t="SS";  // 70点以上などの歴史的記録はSS候補(殿堂入りは余韻で決める)
-      r.tier=t; r.ss_confirmed=(t==="SS"&&r.hall_ok);
-    });
-  });
-  // 月末の決選投票で格上げされた試合(理由も残す)
-  const RK={"-":0,C:1,B:2,A:3,S:4,SS:5}, ups=DATA.upgrades||{};
-  VISIBLE.forEach(r=>{const u=ups[r.id]; if(!u||!r.tier) return;
-    if(RK[u.to]>RK[r.tier]){r.tier=u.to; r.ss_confirmed=(r.tier==="SS"&&r.hall_ok)}
-    r.up_from=u.from; r.story=u.why;});
+  Tiers.assignTiers(VISIBLE,{T:DATA.tiers,R:DATA.rules,prev:DATA.prev,today:DATA.today,upgrades:DATA.upgrades});
   const byId={}; DATA.archive.forEach(r=>byId[r.id]=r);
   DATA.days.forEach(d=>d.games.forEach(g=>{
     const r=byId[g.id], isFavTeam=!!FAV&&g.teams.some(t=>t.abbr===FAV);
@@ -334,7 +302,7 @@ function renderTiers(){
     list=list.filter(r=>scope==="week"?weekKey(r.date)===period:r.date.slice(0,7)===period);
   }
   const total=list.length;
-  list=list.filter(r=>showAll||(r.tier&&r.tier!=="-")).sort((a,b)=>b.score-a.score||b.flow-a.flow);
+  list=list.filter(r=>showAll||(r.tier&&r.tier!=="-")).sort(Tiers.compare);
   if(scope==="season"&&!showAll) list=list.slice(0,60);
   head+=`<div class="days"><button data-act="all" class="${showAll?"on":""}">ランク外も表示(この期間 全${total}試合)</button></div>`;
   const order=["SS","S","A","B","C","-"];

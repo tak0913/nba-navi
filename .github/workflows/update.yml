@@ -46,6 +46,15 @@ jobs:
           python-version: "3.12"
 
       # ネタバレ防止:スクリプトは試合の中身をログに出さない
+      # 取ったESPNのデータと前回の記録を保存・使い回す(毎時の取り直しを軽くし、取れなかった試合は前回の記録で埋める)
+      - uses: actions/cache@v4
+        with:
+          path: |
+            scripts/cache
+            scripts/archive.json
+          key: espn-cache-${{ github.run_id }}
+          restore-keys: espn-cache-
+
       - name: みんなからの投稿を集める
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
