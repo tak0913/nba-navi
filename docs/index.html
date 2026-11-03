@@ -109,6 +109,13 @@ th{color:var(--sub);font-weight:500}
 .aces .team{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .aces .team .n{font-weight:700;margin-bottom:4px}
 .aces .team .p{font-size:13px;margin:2px 0}
+.aces.two{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+.aces.two .col{min-width:0} .aces.two h3{text-align:center;margin:4px 0 8px}
+.aces.two .team{padding:8px;margin-bottom:6px}
+.aces.two .team .n{font-size:13px} .aces.two .team .n small{color:var(--sub);font-weight:400;font-size:11px}
+.aces .rk{display:inline-block;min-width:1.4em;color:var(--sub);font-weight:600}
+.aces.two .team .p{font-size:11.5px;line-height:1.35;margin:3px 0;word-break:break-word}
+.aces .role{display:block;font-size:10px;color:var(--sub)}
 .fav-on{color:#c792ea}
 .set{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;font-size:14px}
 .set h4{margin:0 0 8px;font-size:15px}
@@ -158,7 +165,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03f";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03g";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -373,10 +380,25 @@ function renderHall(){
   <h3>殿堂入り(${conf.length})</h3>${conf.length?`<div class="list">${conf.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}
   <h3>SS候補(30日後の余韻待ち)(${cand.length})</h3>${cand.length?`<div class="list">${cand.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}`;
 }
+function standingsToUse(){
+  // 昨日までの順位。推しの昨日の試合を隠している間は、おとといまでの順位を使う(順位の動きで推しの勝敗がバレないように)
+  const S=DATA.standings; if(!S) return null;
+  const favHiddenYesterday=FAV&&DATA.archive.some(r=>r.date===S.asof&&(r.home===FAV||r.away===FAV)&&isHidden(r));
+  return favHiddenYesterday&&S.prev?{asof:S.prev.asof,wl:S.prev.wl}:{asof:S.asof,wl:S.wl};
+}
+function aceTeam(t,ps,rank,wl,fav){
+  return `<div class="team"><div class="n"><span class="rk">${rank}</span>${t}${wl?` <small>${wl[0]}勝${wl[1]}敗</small>`:""}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p"><span class="role">${i===0?"エース":i===1?"セカンド":"核"}</span>${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px;white-space:nowrap">${TIER_SHORT[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`;
+}
 function renderAces(){
-  const fav=new Set(FAV?[FAV]:[]);
-  return `<div class="legend">エースの格(暫定)。<b>MVP級</b>×1.0/<b>オールスター級</b>×0.7/<b>エース</b>×0.4/それ以外×0.2。並び順はエース→セカンドエース。エースが欠場した日は、次の選手の格が1段上がる。<b>華</b>が付いた選手(カリー・エンビード・レブロン・注目のルーキーなど)は、大活躍した夜だけ一段上の格で数える。</div><div class="aces">`+
-   Object.entries(DATA.stars).sort().map(([t,ps])=>`<div class="team"><div class="n">${t}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p">${i===0?"エース":i===1?"セカンド":"　核"}:${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px">${TIER_JA[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`).join("")+`</div>`;
+  const fav=new Set(FAV?[FAV]:[]), S=standingsToUse(), east=new Set((DATA.standings||{}).east||[]);
+  const wl=t=>S&&S.wl[t]?S.wl[t]:[0,0];
+  const pct=t=>{const [w,l]=wl(t);return w+l?w/(w+l):0};
+  const order=ts=>ts.sort((a,b)=>pct(b)-pct(a)||wl(b)[0]-wl(a)[0]||wl(a)[1]-wl(b)[1]||a.localeCompare(b));
+  const teams=Object.keys(DATA.stars).filter(t=>!t.startsWith("_"));
+  const col=(name,ts)=>`<div class="col"><h3>${name}</h3>${order(ts).map((t,i)=>aceTeam(t,DATA.stars[t],i+1,S?wl(t):null,fav)).join("")}</div>`;
+  const note=S?`<div class="d" style="margin:0 0 8px">${md(S.asof)}までの順位で並べてるよ(今日の試合は入れてない。順位の動きで勝ち負けがわかっちゃうから)</div>`:"";
+  return `<div class="legend">エースの格(暫定)。<b>MVP級</b>×1.0/<b>オールスター級</b>×0.7/<b>エース</b>×0.4/それ以外×0.2。並び順はエース→セカンドエース。エースが欠場した日は、次の選手の格が1段上がる。<b>華</b>が付いた選手(カリー・エンビード・レブロン・注目のルーキーなど)は、大活躍した夜だけ一段上の格で数える。</div>${note}
+    <div class="aces two">${col("西",teams.filter(t=>!east.has(t)))}${col("東",teams.filter(t=>east.has(t)))}</div>`;
 }
 function renderHelp(){
   const T=DATA.tiers, nm=DATA.tier_names, ds=DATA.tier_desc, P=DATA.points||{}, R=DATA.rules||{};

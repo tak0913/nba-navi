@@ -1183,6 +1183,37 @@ def send_alerts(today, records):
     json.dump(state, open(ALERT_STATE, "w"), ensure_ascii=False)
 
 
+EAST = {"ATL", "BOS", "BKN", "CHA", "CHI", "CLE", "DET", "IND", "MIA", "MIL", "NY", "ORL", "PHI", "TOR", "WSH"}
+
+
+def standings_snapshots(today):
+    """エース表の並び用の順位(レギュラーシーズンの勝敗)。今日の試合は入れない(順位の動きで勝敗がわかるので)。
+    昨日まで(asof)と、おとといまで(prev)の2つを返す。推しの試合を隠している間はアプリが prev を使う"""
+    start = min(season_dates(today.strftime("%Y%m%d")))
+    wl, snaps = {}, {}
+    d = start
+    while d < today:
+        try:
+            evs = events_for_jst_date(d)
+        except Exception:
+            evs = []
+        for e, _ in evs:
+            comp = e["competitions"][0]
+            if SEASON_TYPE.get(e.get("season", {}).get("type")) != "regular" or not comp["status"]["type"].get("completed"):
+                continue
+            for c in comp["competitors"]:
+                ab = c["team"]["abbreviation"]
+                r = wl.setdefault(ab, [0, 0])
+                r[0 if c.get("winner") else 1] += 1
+        if d == today - dt.timedelta(days=2):
+            snaps["prev"] = {"asof": d.isoformat(), "wl": {k: list(v) for k, v in wl.items()}}
+        d += dt.timedelta(days=1)
+    snaps["asof"] = (today - dt.timedelta(days=1)).isoformat()
+    snaps["wl"] = {k: list(v) for k, v in wl.items()}
+    snaps["east"] = sorted(EAST)
+    return snaps
+
+
 def write_breakdowns(records, out_dir):
     """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
     d = os.path.join(out_dir, "b")
@@ -1302,6 +1333,7 @@ def main():
     data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(), "app_ver": app_ver,
             "owner_favorites": CFG["favorites"], "fav_hide_hours": CFG.get("favorite_hide_hours", 24),
             "fav_hide_pad_hours": CFG.get("favorite_hide_pad_hours", 3),
+            "standings": standings_snapshots(today),
             "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P, "moment": CFG["moment"],
             "prev": prev_records if isinstance(prev_records, dict) else {},
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
