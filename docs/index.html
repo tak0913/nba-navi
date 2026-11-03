@@ -171,7 +171,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03i";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03j";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -343,8 +343,9 @@ function renderDay(){
   const gs=days[dayIdx].games;
   const banner=store.get("fav_set")?"":`<div class="banner"><b>推しチームを決めよう</b> 推しの試合はランクを24時間かくして、ネタバレを防ぐよ<button data-act="goset">設定する</button></div>`;
   if(!gs.length) return banner+tabs+`<div class="empty">この日は試合なし</div>`;
-  // 推しの試合は別枠で一番上。ほかは、その日の試合が全部終わったらランク順、まだ途中なら開始時刻順
-  const isFav=g=>!!FAV&&g.teams.some(t=>t.abbr===FAV);
+  // ランクを隠している推しの試合(🔒)だけ別枠で一番上。見終わった・24時間たった推しの試合は普通の並びに入る。
+  // ほかは、その日の試合が全部終わったらランク順、まだ途中なら開始時刻順
+  const isFav=g=>g.favorite;
   const favs=gs.filter(isFav), rest=gs.filter(g=>!isFav(g));
   const allDone=gs.every(g=>g.completed);
   const RK={SS:5,S:4,A:3,B:2,C:1,"-":0};
