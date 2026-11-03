@@ -41,7 +41,8 @@ main{padding:12px 12px 60px;max-width:720px;margin:0 auto}
 .badge{flex:none;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:18px;border:2px solid currentColor}
 .badge.SS{color:var(--ss);box-shadow:0 0 14px rgba(245,197,66,.35)} .badge.S{color:var(--s)} .badge.A{color:var(--a)} .badge.B{color:var(--b)} .badge.C{color:var(--c)}
 .badge.none{color:#4a505c;font-size:13px} .badge.exp{color:var(--sub);font-size:12px;line-height:1.1;text-align:center}
-.badge.fav{color:#c792ea;font-size:11px}
+.badge.fav{color:#c792ea;font-size:11px;line-height:1.4}
+.favnote{margin-top:6px;font-size:12px;line-height:1.5;color:#d7b8f3;background:rgba(199,146,234,.10);border:1px solid rgba(199,146,234,.35);border-radius:8px;padding:6px 8px}
 .match{flex:1;min-width:0}
 .match .teams{font-weight:700;font-size:16px}
 .match .teams .at{color:var(--sub);font-weight:400;margin:0 6px}
@@ -145,7 +146,7 @@ th{color:var(--sub);font-weight:500}
 <div class="ob" id="ob" style="display:none"><div class="box" id="obbox"></div></div>
 
 <script>
-const APP_VER="2026-11-03a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-03b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -219,7 +220,7 @@ function topicFor(f){return DATA.topic_prefix+(f?f.toLowerCase():"none")}
 function chipClass(s){return s==="欠場"||s==="出場停止"?"out":s==="出場微妙"||s==="出場厳しい"||s==="様子見"?"q":s==="出場濃厚"?"p":""}
 
 function badge(g){
-  if(g.favorite) return `<div class="badge fav">推し</div>`;
+  if(g.favorite) return `<div class="badge fav">🔒<br>推し</div>`;
   if(g.completed){ return tierBadge(g.tier,g.ss_confirmed); }
   return `<div class="badge exp">期待度<br>${"★".repeat(g.expect)}${"☆".repeat(3-g.expect)}</div>`;
 }
@@ -229,9 +230,17 @@ function tierBadge(t,conf,small){
   return `<div class="badge ${t}"${small?' style="width:40px;height:40px;font-size:16px"':""}>${t}${cand?'<small style="display:block;font-size:9px;font-weight:600;margin-top:-4px">候補</small>':""}</div>`;
 }
 function tierLine(g){
-  if(!g.completed||g.favorite||!g.tier) return "";
+  if(g.favorite) return favNote(g);
+  if(!g.completed||!g.tier) return "";
   const nm=DATA.tier_names[g.tier]||"";
   return `<div class="meta" style="color:var(--text)">${nm}${g.season_rank?`・今季${g.season_rank}位`:""}</div>${upLine(g)}`;
+}
+function favNote(g){
+  // 終わる時刻(残り時間)は出さない。試合の長さ=延長があったかのヒントになるので
+  const nm=esc(DATA.teams[FAV]||FAV);
+  return g.completed
+    ?`<div class="favnote">🔒 推し(${nm})の試合だから、終わってから24時間はランクを隠してるよ。ティア表や通知にも出ない。24時間たったら出てくる</div>`
+    :`<div class="favnote">🔒 推し(${nm})の試合は、終わってから24時間ランクを隠すよ(ネタバレ防止)</div>`;
 }
 function upLine(r){return r.up_from&&r.up_from!==r.tier?`<div class="meta" style="color:var(--ss)">${r.up_from}→${r.tier}(${esc(r.story)})</div>`:""}
 function stateLabel(g){
@@ -289,7 +298,7 @@ function renderDay(){
   const days=DATA.days;
   const tabs=`<div class="days">${days.map((d,i)=>`<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}">${i===0?"今日":i===1?"昨日":"おととい"} ${md(d.date)}</button>`).join("")}</div>`;
   const gs=days[dayIdx].games;
-  const banner=store.get("fav_set")?"":`<div class="banner">推しチームを設定すると、推しの試合は終わってから24時間ネタバレ判定から外れるよ<button data-act="goset">設定する</button></div>`;
+  const banner=store.get("fav_set")?"":`<div class="banner"><b>推しチームを決めよう</b><br>推しの試合は自分で見るはずだから、終わってから24時間は<b>ランク・ティア表・通知に出さない</b>(ランクだけでも「接戦だったかも」がバレるので)。推しの試合だけランクが出ないのはこのためだよ<button data-act="goset">設定する</button></div>`;
   return banner+tabs+(gs.length?gs.map(gameCard).join(""):`<div class="empty">この日は試合なし</div>`);
 }
 function weekKey(d){const x=new Date(d+"T00:00:00Z");const w=(x.getUTCDay()+6)%7;x.setUTCDate(x.getUTCDate()-w);return x.toISOString().slice(0,10)}
@@ -323,7 +332,8 @@ function renderTiers(){
   const order=["SS","S","A","B","C","-"];
   const groups=order.map(t=>{const gs=list.filter(r=>r.tier===t);if(!gs.length)return"";
     return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div>${upLine(r)}</div></div>`).join("")}</div>`}).join("");
-  const note=`<div class="legend">ランクは「比べる範囲」で決まる。SS=歴代、S=シーズン、A=月、B=週の中での上位。試合の1日後・7日後・30日後に余韻(どれだけ語られてるか)を測って、順位はそのたびに動くよ。推しチームの試合は、終わってから24時間たつと表に入るよ。</div>`;
+  const favTop=FAV?`<div class="favnote" style="margin-bottom:10px">🔒 推し(${esc(DATA.teams[FAV]||FAV)})の試合は、終わってから24時間はこの表に出ないよ。順位の抜けからバレないように、ほかの試合の順位も推しの試合を除いて付けてる。24時間たったら入ってくる</div>`:"";
+  const note=favTop+`<div class="legend">ランクは「比べる範囲」で決まる。SS=歴代、S=シーズン、A=月、B=週の中での上位。試合の1日後・7日後・30日後に余韻(どれだけ語られてるか)を測って、順位はそのたびに動くよ。推しチームの試合は、終わってから24時間たつと表に入るよ。</div>`;
   return head+note+(groups||`<div class="empty">この期間はまだランクが付いた試合がないよ</div>`);
 }
 function renderHall(){
@@ -434,7 +444,12 @@ function renderSettings(){
   const topic=topicFor(FAV);
   return `<div class="set"><h4>推しチーム</h4>
     <select id="favsel">${opts}</select>
-    <div style="color:var(--sub);font-size:13px;margin-top:8px">推しチームの試合は、試合が終わってから24時間はランク付け・ティア表・通知から外れる(ネタバレ防止)。24時間たつと表に入るよ。この設定はこのスマホにだけ保存される。</div></div>
+    <div class="favnote" style="margin-top:10px"><b>推しを決めるとこうなる</b><br>
+      ・推しの試合は、終わってから<b>24時間</b>ランクを出さない(カードには🔒推しと出る)<br>
+      ・その間はティア表・殿堂・通知にも出てこない。ほかの試合の順位も推しを除いて付けるから、順位の抜けからもバレない<br>
+      ・24時間たったら普通にランクが付いて、表にも入る<br>
+      ・ロスター・欠場情報・結果ボタンはいつも通り使える</div>
+    <div style="color:var(--sub);font-size:12px;margin-top:8px">この設定はこのスマホにだけ保存される。</div></div>
   <div class="set"><h4>通知を受け取る(無料アプリ ntfy)</h4>
     <div>9・12・15・18・21時ごろ、SS〜Aの試合を対戦カードとランクだけで通知するよ(中身は書かない)。</div>
     <div class="topic"><code id="topic">${esc(topic)}</code><button class="copy" data-act="copy">コピー</button></div>
@@ -457,7 +472,8 @@ function obSteps(){
     ["ランクの意味",`${tiers}<p style="color:var(--sub);font-size:13px">ランクは比べる範囲で決まるよ(SS=歴代、S=シーズン、A=月、B=週の中での上位)。試合後のニュースや動画の盛り上がり(余韻)でも少しずつ動く。</p>`],
     ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る</li><li>カードの上に<b>欠場・出場微妙の選手</b>と、理由・復帰見込み</li><li>タップするとロスターとチームの強み</li><li>一番下の<b>「結果とスタッツを見る」</b>は、もう一度確認してから表示(うっかり防止)</li></ul>`],
     ["ティア表・殿堂・エース表",`<ul><li><b>ティア表</b>:直近3日・週・月・シーズンでランク順に並ぶ。レギュラーシーズン/プレーオフ切り替え、「ランク外も表示」で全試合</li><li><b>殿堂</b>:何年経っても語られる伝説の試合だけが残る場所</li><li><b>エース表</b>:各チームのエースと格(採点に使ってる)</li></ul>`],
-    ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付けや通知から外して、ネタバレしないようにするよ。</p>
+    ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付け・ティア表・通知から外して、ネタバレしないようにするよ。</p>
+      <p style="font-size:13px">なので<b>推しの試合だけランクが出なくても故障じゃない</b>よ。カードには「🔒推し」と出て、24時間たったら普通にランクが付く。</p>
       <select id="obfav" style="width:100%;font-size:16px;padding:10px;border-radius:10px;background:var(--panel2);color:var(--text);border:1px solid var(--line)">${opts}</select>
       <p style="color:var(--sub);font-size:12px">あとから「設定」タブで変えられる。</p>`],
     ["通知を受け取る(任意)",`<p>9・12・15・18・21時ごろ、SS〜Aの試合を<b>対戦カードとランクだけ</b>で知らせるよ。</p>
