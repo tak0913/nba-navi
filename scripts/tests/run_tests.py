@@ -135,7 +135,7 @@ def test_text():
            "stars": {"pts": 35, "items": [dict(star_item("p", 41, 1.0, 35), who="Luka Doncic", why=["40点以上"])]},
            "card": {"pts": 10, "items": []}, "record": {"pts": 0}, "absence": {"pts": 0}, "buzz": {"pts": 0},
            "moment": {"pts": 0}}
-    check("why.close+star", C.why_line(out), "最後までもつれた接戦+ドンチッチの40点超え")
+    check("why.close+star", C.why_line(out), "最後までもつれた接戦+Luka Doncicの40点超え")
     check("guide.top_late", C.watch_guide(out, "A").startswith("本編を最初から"), True)
     low = copy.deepcopy(out)
     low["flow"]["items"] = []

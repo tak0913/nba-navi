@@ -1642,11 +1642,8 @@ STAR_WHY = {"50点以上": "50点超え", "40点以上": "40点超え", "30点�
 
 
 def short_name(name):
-    ja = NAMES_JA.get("players", {}).get(name)
-    if ja:
-        return ja[1] if len(ja) > 1 else ja[0]
-    parts = [w for w in name.split() if w.rstrip(".") not in ("Jr", "Sr", "II", "III", "IV")]
-    return parts[-1] if parts else name
+    """表示用の名前。カタカナに直さず、英語のフルネームのまま(例:Trae Young)"""
+    return name
 
 
 def why_line(out):
