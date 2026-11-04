@@ -117,6 +117,8 @@ th{color:var(--sub);font-weight:500}
 .whybtn{flex:none;background:transparent;border:1px solid var(--line);color:var(--sub);border-radius:10px;padding:5px 9px;font-size:12px;line-height:1.2;text-align:center}
 .whybtn small{display:block;font-size:9px;color:#6d7586}
 .whybtn.on{border-color:var(--brand);color:var(--brand)}
+.item .btns{display:flex;flex-direction:column;gap:4px;flex:none}
+.item .confirm{margin-top:6px}
 .whyin{font-size:12.5px;color:var(--text);margin-top:3px;font-weight:600}
 .whyin:empty{display:none}
 .guide{font-size:13px;color:var(--brand);margin:0 0 6px;font-weight:600}
@@ -224,7 +226,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04n";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-05a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -526,15 +528,21 @@ function renderTiers(){
   head+=`<div class="days"><button data-act="all" class="${showAll?"on":""}">ランク外も表示(この期間 全${total}試合)</button></div>`;
   const order=["SS","S","A","B","C","-"];
   const groups=order.map(t=>{const gs=list.filter(r=>r.tier===t);if(!gs.length)return"";
-    return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div>${upLine(r)}<div class="whyin" id="wy_${r.id}"></div></div><button class="whybtn" data-act="why" data-id="${r.id}">理由<small>ネタバレ</small></button></div>`).join("")}</div>`}).join("");
+    return `<h3>${t==="-"?"ランク外":t+":"+DATA.tier_names[t]}(${gs.length})</h3><div class="list">${gs.map(r=>`<div class="item">${tierBadge(r.tier,r.ss_confirmed,1)}<div><div><b>${list.indexOf(r)+1}位</b> ${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・今季${r.season_rank}位</div>${upLine(r)}<div class="whyin" id="wy_${r.id}"></div>${detailParts(r).box}</div><div class="btns"><button class="whybtn" data-act="why" data-id="${r.id}">理由<small>ネタバレ</small></button>${detailParts(r).btn}</div></div>`).join("")}</div>`}).join("");
   const favTop=FAV?`<div class="favnote" style="margin-bottom:10px">🔒 推し(${esc(FAV)})の試合は、終わってから24時間ここに出ないよ</div>`:"";
   const note=favTop+`<div class="legend">SS=歴代・S=シーズン・A=月・B=週の中での上位。試合後の話題(余韻)で順位は動くよ</div>`;
   return head+note+(groups||`<div class="empty">この期間はまだランクが付いた試合がないよ</div>`);
 }
+// ティア表・殿堂から結果と点数の内訳へ。確認してから開く。直近5日の試合は試合タブのカードへ飛ぶ(スコア・スタッツも見られる)
+function detailParts(r){
+  const inWin=allGames().some(g=>g.id===r.id&&g.result);
+  return {btn:`<button class="whybtn" data-act="dask" data-id="${r.id}">${inWin?"結果":"内訳"}<small>ネタバレ</small></button>`,
+    box:`<div class="confirm" id="tcf_${r.id}">${inWin?"試合タブに移って、スコア・スタッツ・点数の内訳を表示するよ。":"点数の内訳(何で点が入ったか)を表示するよ。この試合はもう古いのでスコアは出ない。"}見る?<div class="acts"><button class="no" data-act="dcancel" data-id="${r.id}">やめる</button><button class="yes" data-act="dshow" data-id="${r.id}">見る</button></div></div><div id="tdl_${r.id}"></div>`};
+}
 function renderHall(){
   const ss=VISIBLE.filter(r=>r.tier==="SS").sort((a,b)=>b.score-a.score);
   const conf=ss.filter(r=>r.ss_confirmed), cand=ss.filter(r=>!r.ss_confirmed);
-  const item=r=>`<div class="item">${tierBadge("SS",r.ss_confirmed,1)}<div><div>${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・${r.type==="regular"?"レギュラーシーズン":"プレーオフ"}・${r.season-1}-${String(r.season).slice(2)}</div></div></div>`;
+  const item=r=>`<div class="item">${tierBadge("SS",r.ss_confirmed,1)}<div style="flex:1"><div>${r.away} @ ${r.home}</div><div class="d">${md(r.date)}・${r.type==="regular"?"レギュラーシーズン":"プレーオフ"}・${r.season-1}-${String(r.season).slice(2)}</div>${detailParts(r).box}</div><div class="btns">${detailParts(r).btn}</div></div>`;
   return `<div class="legend">何年経っても語られる一戦。SS候補が30日後もまだ語られていたら殿堂入り</div>
   <h3>殿堂入り(${conf.length})</h3>${conf.length?`<div class="list">${conf.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}
   <h3>SS候補(30日後の余韻待ち)(${cand.length})</h3>${cand.length?`<div class="list">${cand.map(item).join("")}</div>`:`<div class="empty" style="padding:16px 0">まだなし</div>`}`;
@@ -772,6 +780,18 @@ document.getElementById("main").addEventListener("click",e=>{
     const rs=document.getElementById("rs_"+id), ask=rs.closest(".reveal").querySelector('[data-act="ask"]');
     rs.innerHTML=""; rs.style.display="none"; if(ask) ask.style.display="";
     document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
+  if(act==="dask"){const b=document.getElementById("tcf_"+id); if(b) b.style.display="block"; el.style.display="none"; return}
+  if(act==="dcancel"){document.getElementById("tcf_"+id).style.display="none"; el.closest(".item").querySelector('[data-act="dask"]').style.display=""; return}
+  if(act==="dshow"){
+    const days=allDays(), di=days.findIndex(d=>d.games.some(g=>g.id===id&&g.result));
+    if(di>=0){   // 直近の試合:試合タブのその日へ移って、結果を開いた状態で見せる
+      OPEN.clear(); OPEN.add(id); store.set("seen_"+id,"1"); dayIdx=di; view="day";
+      document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="day"));
+      computeTiers(); render(); document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
+    document.getElementById("tcf_"+id).style.display="none";
+    const box=document.getElementById("tdl_"+id);
+    box.innerHTML=`<div class="bd" id="bd_${id}"><div class="d">点数の内訳を読み込み中…</div></div><button class="btn" data-act="dclose" data-id="${id}" style="margin-top:6px">閉じる ▴</button>`; loadBd(id); return}
+  if(act==="dclose"){const it=el.closest(".item"); document.getElementById("tdl_"+id).innerHTML=""; it?.querySelector('[data-act="dask"]')?.style.removeProperty("display"); return}
   if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
