@@ -790,7 +790,8 @@ def measure_moments(records, today):
                 MOMENT_STATS["tries"] += 1
                 MOMENT_STATS["ok"] += 1 if res else 0
                 if res:
-                    hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[0]}
+                    hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[0],
+                                     "p": res[2] if len(res) > 2 else {}}   # p = 選手ごとの切り抜き再生数(華の候補づくり用)
                 time.sleep(0.4)
             got = [v for v in tops.values() if v]
             night_mid = statistics.median(got) if got else None
@@ -1315,6 +1316,43 @@ def star_suggestions(records, today):
     return add, drop
 
 
+def aura_suggestions(today, records=()):
+    """華の見直し候補(月1回)。直近30日、選手の切り抜き動画が1試合あたりどれだけ見られたか(チームの試合数で割る)を
+    リーグ全体で並べる。みんなが見たがっている選手=華。上位 aura_top 人で華がない選手を「付ける候補」、
+    華があるのに上位 aura_keep 人に入っていない選手を「外す候補」にする。決めるのは持ち主"""
+    hist = load_json(CLIP_HIST, {})
+    since = (today - dt.timedelta(days=30)).isoformat()
+    games, views = {}, {}
+    for h in hist.values():
+        if h.get("d", "") < since or "p" not in h:
+            continue
+        for ab in (h["h"], h["a"]):
+            games[ab] = games.get(ab, 0) + 1
+        for n, (ab, v) in h["p"].items():
+            views[(n, ab)] = views.get((n, ab), 0) + v
+    if not views:
+        return [], []
+    # 直近30日に3試合以上出た選手だけ(長期離脱中でケガのニュース動画だけ見られている選手を除く)
+    played = {}
+    for r in records:
+        if r["date"] >= since:
+            for lu in (r.get("lineup") or {}).values():
+                for nm, _ in (lu.get("pts") or {}).values():
+                    played[norm(nm)] = played.get(norm(nm), 0) + 1
+    ok = (lambda n: played.get(norm(n), 0) >= 3) if records else (lambda n: True)
+    avg = sorted(((v / max(1, games.get(ab, 1)), n, ab) for (n, ab), v in views.items()
+                  if games.get(ab, 0) >= 5 and ok(n)), reverse=True)
+    rank = {n: i + 1 for i, (_, n, _) in enumerate(avg)}
+    aura = {norm(p["name"]): (ab, p["name"]) for ab, lst in STARS.items() if not ab.startswith("_") for p in lst if p.get("aura")}
+    A = CFG.get("aura", {"top": 12, "keep": 40})
+    # MVP級はもう一番上の格なので、華を付けても変わらない → 候補から外す
+    add = [f"{ab} {n}(1試合あたり{a / 1e4:.0f}万再生・{rank[n]}位)" for a, n, ab in avg[:A["top"]]
+           if norm(n) not in aura and tier_of(ab, n) != "mvp"]
+    drop = [f"{ab} {n}({rank.get(n, '圏外')}位)" for k, (ab, n) in aura.items()
+            if rank.get(n, 10**6) > A["keep"] and games.get(ab, 0) >= 5]
+    return add, drop
+
+
 def send_alerts(today, records):
     """持ち主にだけ知らせること(見張り・エース表の見直し)を alert.txt に書く。ワークフローが NTFY_TOPIC に送る"""
     state = load_json(ALERT_STATE, {})
@@ -1328,6 +1366,9 @@ def send_alerts(today, records):
         add, drop = star_suggestions(records, today)
         if add or drop:
             parts.append("【エース表の見直し候補】\n" + "\n".join(["入れる候補:"] + (add or ["なし"]) + ["外す候補:"] + (drop or ["なし"])))
+        add, drop = aura_suggestions(today, records)
+        if add or drop:
+            parts.append("【華の見直し候補(切り抜き動画の見られ方・直近30日)】\n" + "\n".join(["華を付ける候補:"] + (add or ["なし"]) + ["華を外す候補:"] + (drop or ["なし"])))
         state["stars"] = month
     if parts:
         open(os.path.join(HERE, "alert.txt"), "w").write("\n\n".join(parts))

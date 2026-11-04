@@ -252,6 +252,19 @@ def youtube_clip_views(team_a, team_b, game_date, names_a=(), names_b=(), abbr_a
     tol = max(2, round(since * 0.35))
     side_a = _words((abbr_a, team_a["nick"]), names_a) | {_last(n) for n in roster_a if len(_last(n)) >= 4}
     side_b = _words((abbr_b, team_b["nick"]), names_b) | {_last(n) for n in roster_b if len(_last(n)) >= 4}
+    # 選手ごとの呼び方(華の候補づくり用:どの選手の切り抜きがどれだけ見られたか)
+    who = {}
+    everyone = set(names_a) | set(roster_a) | set(names_b) | set(roster_b)
+    dup = {l for l in (_last(n) for n in everyone) if sum(1 for m in everyone if _last(m) == l) > 1}
+    for ab, ns in ((abbr_a, set(names_a) | set(roster_a)), (abbr_b, set(names_b) | set(roster_b))):
+        for n in ns:
+            # 同じ名字の選手が試合にいる(ウィリアムズが3人など)ときは、名字だけでなくフルネームで探す
+            last = _last(n)
+            w = ({_plain(n).replace(".", "")} if last in dup else {last}) if len(last) >= 4 else set()
+            w |= {_plain(x) for x in NAMES["en"].get(n, [])} | {_plain(x) for x in NAMES["players"].get(n, [])}
+            if w:
+                who[n] = (ab, w)
+    per = {}
     skip = ("full game", "highlights", "reaction", "live", "stream", "recap", "postgame", "press conference",
             "ハイライト", "試合後", "インタビュー", "会見", "ライブ", "配信", "同時視聴")
     seen, total, top, got = set(), 0, 0, False
@@ -277,6 +290,9 @@ def youtube_clip_views(team_a, team_b, game_date, names_a=(), names_b=(), abbr_a
                 seen.add(vid)
                 total += v
                 top = max(top, v)
-    res = (total, top) if got else None
+                for n, (ab, w) in who.items():
+                    if _hit(title, w):
+                        per[n] = [ab, per.get(n, [ab, 0])[1] + v]
+    res = (total, top, per) if got else None
     _CLIP_CACHE[key] = res
     return res

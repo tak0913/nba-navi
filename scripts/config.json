@@ -170,5 +170,10 @@
     "min_samples": 3
   },
   "favorite_hide_pad_hours": 3,
-  "career_fetch_per_run": 40
+  "career_fetch_per_run": 40,
+  "aura": {
+    "_note": "華の見直し候補:直近30日の選手ごとの切り抜き再生数(1試合あたり)で、上位top人で華なし→付ける候補、華ありでkeep位より下→外す候補",
+    "top": 12,
+    "keep": 40
+  }
 }
