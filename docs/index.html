@@ -140,16 +140,23 @@ th{color:var(--sub);font-weight:500}
 .tv ul,.tvcard ul,.hc ul{margin:0;padding:0 10px 8px 10px;list-style:none}
 .tv li,.tvcard li,.hc li{font-size:12.5px;line-height:1.5;padding:4px 0;border-top:1px dashed var(--line)}
 .tvk{display:inline-block;font-size:10.5px;font-weight:700;color:var(--sub);margin-right:6px}
-.tvjump{display:flex;gap:6px;margin:8px 0;padding:2px 0}
-.chipbtn{flex:1;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:999px;padding:7px 0;font-size:13px;font-weight:700}
-.chipbtn small{margin-left:4px;color:var(--sub);font-weight:400}
-.tvsec{font-size:15px}
-.tvpast{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:0 8px;background:var(--panel2)}
-.tvpast>summary{padding:10px 4px;font-weight:700;cursor:pointer}
-.tvpast>summary small{margin-left:6px;color:var(--sub);font-weight:400}
+.tvn{display:block;font-size:10px;color:var(--brand);font-weight:700}
+.tvfull{font-size:11px;color:var(--sub);padding:0 12px 4px}
+.tvcard.done{opacity:.6}
+.fire{margin-right:4px}
+.hc>summary{padding:8px 10px;cursor:pointer;list-style:none;position:relative}
+.hc>summary::-webkit-details-marker{display:none}
+.hc>summary::after{content:"▾";position:absolute;right:10px;top:10px;color:var(--sub)}
+.hc[open]>summary::after{content:"▴"}
+.hc>summary .tvn{display:inline;margin-left:6px}
+.hcteam{font-size:12px;color:var(--sub)}
+.hcname{font-size:13px}
+.hcvs{font-size:12px;font-weight:700;margin-bottom:2px}
+.hcvs small{font-weight:400;color:var(--sub);margin-left:2px}
+.jnteam{display:inline-block;color:#fff;font-size:10px;font-weight:800;border-radius:4px;padding:1px 4px;margin-right:4px}
 .tvcard{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--tc);border-radius:12px;margin-bottom:8px}
 .tvh{padding:8px 10px 2px;font-weight:800} .tvh .at{color:var(--sub);font-weight:400;margin:0 5px} .tvh small{color:var(--sub);font-weight:400;margin-left:8px;font-size:11px}
-.hc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px;font-size:13px}
+.hc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0;margin-bottom:6px;font-size:13px}
 .hc ul{padding:4px 0 0}
 .sec{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin:4px 2px 8px}
 .list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
@@ -217,7 +224,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04l";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04m";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -305,39 +312,38 @@ function jerseyOf(ab,name,g){
   return ((DATA.jerseys||{})[ab]||{})[name]||"";
 }
 // ---- 小話(ちなみに)。点数やランクには入れない、読んで楽しむための引き出し ----
-const TV_ICON={"ブーイング":"👎","大歓迎":"👏","イベント":"🎉","古巣対決":"🏠","復帰":"💪","記録目前":"📈","日本人選手":"🇯🇵","誕生日":"🎂","ファイナル再戦":"🏆","恩師 vs 教え子":"🎓","古巣":"🧳","師弟対決":"🤝","一門":"🌳"};
+const TV_ICON={"ブーイング":"👎","大歓迎":"👏","イベント":"🎉","古巣対決":"🏠","復帰":"💪","記録目前":"📈","日本人選手":"🇯🇵","誕生日":"🎂","ファイナル再戦":"🏆","恩師 vs 教え子":"🎓","古巣":"🧳","師弟対決":"🤝","一門":"🌳","クリスマス":"🎄","セレモニー":"🎖️","凱旋":"🏟️","新人対決":"🌟"};
 function tvItem(x){return `<li><span class="tvk">${TV_ICON[x.kind]||"💡"} ${esc(x.kind)}</span>${esc(x.text)}</li>`}
 function triviaHTML(g){
   const t=g.trivia||[]; if(!t.length) return "";
   return `<details class="tv"><summary>💡 ちなみに<small>${t.length}</small></summary><ul>${t.map(tvItem).join("")}</ul></details>`;
 }
-function tvJump(id){const el=document.getElementById(id), hd=document.querySelector("header");
-  if(el) window.scrollTo({top:el.getBoundingClientRect().top+scrollY-(hd?hd.offsetHeight:0)-8,behavior:"smooth"});}
 function renderTrivia(){
   const days=allDays(), base=DATA.days.length-1;
-  // 会場が熱い試合(🔥)が先、次に小話の多い順
-  const sortG=gs=>gs.sort((x,y)=>(!!y.heat-!!x.heat)||(y.trivia.length-x.trivia.length));
-  const card=g=>{const [h,a]=g.teams;
-    return `<div class="tvcard" style="--tc:${tcol(h.abbr)}"><div class="tvh">${g.heat?"🔥 ":""}${esc(a.abbr)}<span class="at">@</span><span style="color:${tcol(h.abbr)}">${esc(h.abbr)}</span><small>${g.start}</small></div><ul>${g.trivia.map(tvItem).join("")}</ul></div>`};
+  if(dayIdx==null||dayIdx>=days.length) dayIdx=base;
   const has=g=>(g.trivia||[]).length;
-  // これから:まだ始まっていない試合(今日・明日・あさって)を時間順。終わった試合:今日の終わった分・昨日・おととい(新しい順、普段は閉じておく)
-  const up=[], past=[];
-  [base,base+1,base+2].forEach(i=>{const d=days[i]; if(!d) return;
-    const gs=sortG(d.games.filter(g=>has(g)&&!g.completed&&g.state!=="in"));
-    if(gs.length) up.push({i,d,gs});});
-  [base,base-1,base-2].forEach(i=>{const d=days[i]; if(!d) return;
-    const gs=sortG(d.games.filter(g=>has(g)&&(g.completed||g.state==="in")));
-    if(gs.length) past.push({i,d,gs});});
-  const head=x=>`${DAY_NAMES[x.i-base+2]||""} ${md(x.d.date)}`;
-  const jump=up.length>1?`<div class="tvjump">${up.map(x=>`<button class="chipbtn" onclick="tvJump('tvd${x.i}')">${DAY_NAMES[x.i-base+2]||md(x.d.date)}<small>${x.gs.length}</small></button>`).join("")}</div>`:"";
-  const upHTML=up.length?up.map(x=>`<h3 id="tvd${x.i}" class="tvday">${head(x)}</h3>`+x.gs.map(card).join("")).join(""):`<div class="empty">これからの試合の小話はまだなし</div>`;
-  const pastHTML=past.length?`<details class="tvpast"><summary>もう始まった・終わった試合の小話<small>${past.reduce((n,x)=>n+x.gs.length,0)}試合</small></summary>${past.map(x=>`<h3 class="tvday">${head(x)}</h3>`+x.gs.map(card).join("")).join("")}</details>`:"";
+  // 日付の切り替えは試合タブと同じ(どっちで選んでも同じ日になる)。数字はその日の小話がある試合数
+  const tabs=`<div class="days five">${days.map((d,i)=>{const n=d.games.filter(has).length;
+    return `<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}"><span>${DAY_NAMES[i-base+2]||""}</span>${md(d.date)}${n?`<small class="tvn">${n}</small>`:""}</button>`}).join("")}</div>`;
+  // その日の中は:まだ始まっていない試合が先(🔥が先頭)、始まった・終わった試合は後ろ
+  const started=g=>g.completed||g.state==="in";
+  const gs=days[dayIdx].games.filter(has).sort((x,y)=>(started(x)-started(y))||(!!y.heat-!!x.heat)||(y.trivia.length-x.trivia.length)||String(x.start).localeCompare(String(y.start)));
+  const card=g=>{const [h,a]=g.teams;
+    return `<div class="tvcard${started(g)?" done":""}" style="--tc:${tcol(h.abbr)}">
+      <div class="tvh">${g.heat?'<span class="fire">🔥</span>':""}${esc(a.abbr)}<span class="at">@</span><span style="color:${tcol(h.abbr)}">${esc(h.abbr)}</span><small>${started(g)?(g.completed?"終了":"試合中"):g.start}</small></div>
+      <div class="tvfull">${esc(a.name||DATA.teams[a.abbr]||"")} @ ${esc(h.name||DATA.teams[h.abbr]||"")}</div>
+      <ul>${g.trivia.map(tvItem).join("")}</ul></div>`};
+  const list=gs.length?gs.map(card).join(""):`<div class="empty">この日の小話はなし</div>`;
+  // HC図鑑:チームごとに開く。因縁は「どのチームと当たるときの話か」を先に書く
   const coaches=DATA.coaches||{}, ties=DATA.coach_ties||[];
   const hc=Object.keys(coaches).sort().map(ab=>{const my=ties.filter(t=>t.teams.includes(ab));
-    return `<div class="hc" style="border-left:3px solid ${tcol(ab)}"><b>${ab}</b> ${esc(coaches[ab]||"")}${my.length?`<ul>${my.map(t=>`<li><span class="tvk">${TV_ICON[t.label]||"💡"} ${esc(t.label)}</span>${esc(t.text)}</li>`).join("")}</ul>`:""}</div>`}).join("");
-  return `<div class="legend">知ってると試合がもっと楽しくなる小話。点数やランクには入れてないよ。試合カードの「💡ちなみに」でも見られる</div>`
-    +jump+`<h3 class="tvsec">これからの試合</h3>`+upHTML+pastHTML
-    +`<h3>HC図鑑(30チームのヘッドコーチ)</h3>${hc}`
+    const rows=my.map(t=>{const opp=t.teams.find(x=>x!==ab)||ab;
+      return `<li><div class="hcvs"><span class="jnteam" style="background:${tcol(opp)}">${esc(opp)}</span>${esc(DATA.teams[opp]||opp)}<small>(HC ${esc(coaches[opp]||"?")})</small>と当たるとき</div>
+        <span class="tvk">${TV_ICON[t.label]||"💡"} ${esc(t.label)}</span>${esc(t.text)}</li>`}).join("");
+    return `<details class="hc" style="border-left:3px solid ${tcol(ab)}"><summary><b>${ab}</b> <span class="hcteam">${esc(DATA.teams[ab]||"")}</span><br><span class="hcname">HC ${esc(coaches[ab]||"")}</span>${my.length?`<small class="tvn">因縁${my.length}</small>`:""}</summary>${my.length?`<ul>${rows}</ul>`:`<div class="d" style="padding:0 10px 8px">今のところ因縁の話はなし</div>`}</details>`}).join("");
+  return `<div class="legend">知ってると試合がもっと楽しくなる小話。点数やランクには入れてないよ。🔥は会場が熱くなる試合。試合カードの「💡ちなみに」でも見られる</div>`
+    +tabs+list
+    +`<h3>HC図鑑(30チームのヘッドコーチ)</h3><div class="d" style="margin-bottom:6px">チームを押すと、そのHCがどのチームと当たると因縁があるかが出るよ</div>${hc}`
     +`<div class="d" style="margin-top:10px">セレモニーやレジェンドの来場みたいな小話を知ってたら、「投稿」タブの「小話」から教えてね</div>`;
 }
 function previewHTML(g){
