@@ -268,6 +268,7 @@ def youtube_clip_views(team_a, team_b, game_date, names_a=(), names_b=(), abbr_a
     skip = ("full game", "highlights", "reaction", "live", "stream", "recap", "postgame", "press conference",
             "ハイライト", "試合後", "インタビュー", "会見", "ライブ", "配信", "同時視聴")
     seen, total, top, got = set(), 0, 0, False
+    vids_out = {}
     for q, f in queries:
         try:
             vids = _yt_search(q, f)
@@ -290,9 +291,11 @@ def youtube_clip_views(team_a, team_b, game_date, names_a=(), names_b=(), abbr_a
                 seen.add(vid)
                 total += v
                 top = max(top, v)
-                for n, (ab, w) in who.items():
-                    if _hit(title, w):
-                        per[n] = [ab, per.get(n, [ab, 0])[1] + v]
-    res = (total, top, per) if got else None
+                names = [n for n, (ab, w) in who.items() if _hit(title, w)]
+                for n in names:
+                    per[n] = [who[n][0], per.get(n, [who[n][0], 0])[1] + v]
+                vids_out[vid] = [v, names]
+    # 4つ目 = 動画ごとの再生数と映っている選手(測るたびに検索結果の顔ぶれが変わるので、呼ぶ側で前回までの分と合わせる)
+    res = (total, top, per, vids_out) if got else None
     _CLIP_CACHE[key] = res
     return res

@@ -622,7 +622,7 @@ def latest_buzz(r):
     return sum(vals) / len(vals) if vals else None
 
 
-MOMENT_VER = 3   # 名場面の測り方の版。変えたら上げる(古い版の結果は捨てて測り直す)
+MOMENT_VER = 4   # 名場面の測り方の版。変えたら上げる(古い版の結果は捨てて測り直す)
 
 
 def _moment_ok(m):
@@ -630,11 +630,11 @@ def _moment_ok(m):
 
 
 def moment_bonus(r):
-    """名場面ボーナス:1日後・7日後に測った分の大きい方"""
+    """名場面ボーナス(moment = [点, 倍率, 版])"""
     m = r.get("moment") or []
     if not _moment_ok(m):    # 古い測り方の結果は使わない
         return 0
-    return max([v for v in m[:2] if v is not None] or [0])
+    return m[0] or 0
 
 
 def fs(r):
@@ -755,71 +755,83 @@ def team_clip_base(hist, abbr, before, exclude):
     return statistics.median(vals) if len(vals) >= CFG["moment"]["min_samples"] else None
 
 
-def measure_moments(records, today):
-    """名場面:その試合の切り抜き動画(ショート・日本語の動画も含む)の再生数の合計が「そのチームにしては」どれだけ伸びたかを、同じ夜の試合と比べる。
-    バズったプレーは色んな人が上げ直すので、1本だけでなく合計で見る。
-    いつもの伸び = 両チームの過去の試合の値(真ん中の値)の平均。過去の試合が少ないチームはその夜の真ん中の値を使う。
-    倍率がその夜の1位なら top_bonus 点、上位(high_pct)なら high_bonus 点。
-    ただし再生数が min_views 未満、または倍率が min_ratio 未満なら0点。1日後と7日後に1回ずつ測る"""
-    import time
+def merge_clips(prev, res, date, home, away):
+    """切り抜きの測定結果を前回までと合わせる。YouTubeの再生数は減らないので、
+    動画ごとに「今まで見た一番多い再生数」を覚えておき、今回の検索に出てこなかった動画も数えたままにする
+    (検索のたびに出てくる動画の顔ぶれが変わって合計がブレるのを防ぐ)"""
+    vids = dict((prev or {}).get("v") or {})
+    for vid, (v, names) in (res[3] if len(res) > 3 else {}).items():
+        if vid not in vids or v > vids[vid][0]:
+            vids[vid] = [v, names]
+    per = {}
+    for v, names in vids.values():
+        for n in names:
+            per[n] = per.get(n, 0) + v
+    old_p = (prev or {}).get("p") or {}
+    pmap = {**{n: x[0] for n, x in old_p.items()}, **{n: x[0] for n, x in (res[2] if len(res) > 2 else {}).items()}}
+    p_out = {n: [pmap.get(n, "?"), max(per.get(n, 0), (old_p.get(n) or [None, 0])[1])] for n in set(per) | set(old_p)}
+    total = max(sum(v for v, _ in vids.values()), (prev or {}).get("t") or 0)   # 前の測り方の合計より減らさない
+    out = {"d": date, "h": home, "a": away, "t": total, "p": p_out, "v": vids}
+    for k in ("seed",):
+        if prev and k in prev:
+            out[k] = prev[k]
+    return out
+
+
+def moment_scores(records):
+    """名場面ボーナスを今の切り抜き再生数で付け直す(毎回。測り直すたびに数字が育つので)。
+    倍率 = その試合の切り抜き再生数の合計 ÷ 両チームの「いつもの値」(それより前の試合の真ん中の値)の平均。
+    同じ夜のほかの試合とは比べない(すごい試合が重なった夜は全部に付き、地味な夜は誰にも付かない)。
+    再生数が min_views 未満は0点(もともと見られていないチームの「3倍」は名場面と言えないので)"""
     import statistics
+    M = CFG["moment"]
+    hist = load_json(CLIP_HIST, {})
+    night_mid = {}
+    for gid, h in hist.items():
+        night_mid.setdefault(h["d"], []).append(h.get("t") or 0)
+    night_mid = {d: statistics.median(v) for d, v in night_mid.items() if v}
+    for r in records:
+        h = hist.get(r["id"])
+        if not h or not h.get("t"):
+            continue
+        bases = [team_clip_base(hist, ab, h["d"], r["id"]) or night_mid.get(h["d"]) for ab in (h["h"], h["a"])]
+        if not all(bases):
+            continue
+        ratio = h["t"] / (sum(bases) / 2)
+        bonus = 0
+        if h["t"] >= M["min_views"]:
+            bonus = M["bonus_big"] if ratio >= M["ratio_big"] else M["bonus"] if ratio >= M["ratio"] else 0
+        r["moment"] = [bonus, round(ratio, 2), MOMENT_VER]
+
+
+def measure_moments(records, today):
+    """名場面:その試合の切り抜き動画(ショート・日本語の動画も含む)の再生数を、試合の1〜7日後に毎日1回測る。
+    バズったプレーは色んな人が上げ直すので、1本だけでなく合計で見る。点数は moment_scores で付ける"""
+    import time
     import buzz as B
     M = CFG["moment"]
     hist = load_json(CLIP_HIST, {})
     info = team_info()
-    nights = {}
-    for r in records:
-        nights.setdefault((r["date"], r["type"]), []).append(r)
-    for (date, typ), games in sorted(nights.items()):
-        gd = dt.date.fromisoformat(date)
+    for r in sorted(records, key=lambda r: r["date"]):
+        gd = dt.date.fromisoformat(r["date"])
         age = (today - gd).days
-        for slot, day in ((0, 1), (1, 7)):
-            if age < day or age > day + 3:      # 測れる時期を逃した夜は測らない(古い動画の数字は比べにくい)
-                continue
-            if all(_moment_ok(g.get("moment")) and g["moment"][slot] is not None for g in games):
-                continue
-            tops = {}
-            for g in games:
-                try:
-                    res = B.youtube_clip_views(info[g["away"]], info[g["home"]], gd,
-                                               star_names(g["away"]), star_names(g["home"]), g["away"], g["home"],
-                                               roster_names(g["id"]).get(g["away"], ()), roster_names(g["id"]).get(g["home"], ()))
-                except Exception:
-                    res = None
-                tops[g["id"]] = res[0] if res else None    # 切り抜き(ショート・日本語含む)の再生数の合計
-                MOMENT_STATS["tries"] += 1
-                MOMENT_STATS["ok"] += 1 if res else 0
-                if res:
-                    hist[g["id"]] = {"d": date, "h": g["home"], "a": g["away"], "t": res[0],
-                                     "p": res[2] if len(res) > 2 else {}}   # p = 選手ごとの切り抜き再生数(華の候補づくり用)
-                time.sleep(0.4)
-            got = [v for v in tops.values() if v]
-            night_mid = statistics.median(got) if got else None
-            ratios = {}
-            for g in games:
-                v = tops[g["id"]]
-                if v is None:
-                    ratios[g["id"]] = None
-                    continue
-                bases = [team_clip_base(hist, ab, date, g["id"]) for ab in (g["home"], g["away"])]
-                bases = [b if b else night_mid for b in bases]
-                base = sum(bases) / 2 if all(bases) else None
-                ratios[g["id"]] = v / base if base else None
-            pct = B.percentile_within(ratios)
-            n = sum(1 for v in ratios.values() if v is not None)
-            for g in games:
-                m = g.get("moment") if _moment_ok(g.get("moment")) else [None, None, MOMENT_VER]   # 3つ目=測り方の版
-                g["moment"] = m
-                v, ratio, p = tops.get(g["id"]), ratios.get(g["id"]), pct.get(g["id"])
-                if v is None or ratio is None:
-                    continue
-                bonus = 0
-                if n >= M["min_games"] and v >= M["min_views"] and ratio >= M["min_ratio"]:
-                    if p == 1.0:
-                        bonus = M["top_bonus"]
-                    elif p >= M["high_pct"]:
-                        bonus = M["high_bonus"]
-                m[slot] = bonus
+        if age < 1 or age > M.get("measure_days", 7):
+            continue
+        prev = hist.get(r["id"])
+        if prev and prev.get("m") == today.isoformat():   # 今日はもう測った
+            continue
+        try:
+            res = B.youtube_clip_views(info[r["away"]], info[r["home"]], gd,
+                                       star_names(r["away"]), star_names(r["home"]), r["away"], r["home"],
+                                       roster_names(r["id"]).get(r["away"], ()), roster_names(r["id"]).get(r["home"], ()))
+        except Exception:
+            res = None
+        MOMENT_STATS["tries"] += 1
+        MOMENT_STATS["ok"] += 1 if res else 0
+        if res:
+            hist[r["id"]] = merge_clips(prev, res, r["date"], r["home"], r["away"])
+            hist[r["id"]]["m"] = today.isoformat()
+        time.sleep(0.4)
     json.dump(hist, open(CLIP_HIST, "w"), separators=(",", ":"))
 
 
@@ -1801,7 +1813,7 @@ def write_breakdowns(records, out_dir):
         out = dict(r["bd"])
         out["absence"] = {"pts": r.get("absence", 0), "who": r.get("absent", {})}
         out["buzz"] = {"pts": buzz_pts, "d": r.get("buzz", {})}
-        out["moment"] = {"pts": moment_bonus(r)}
+        out["moment"] = {"pts": moment_bonus(r), "ratio": (r["moment"][1] if _moment_ok(r.get("moment")) else None)}
         out["total"] = fs(r)
         out["why"] = why_line(out)
         out["guide"] = watch_guide(out, r.get("tier") or "-")
@@ -1907,6 +1919,7 @@ def main():
     if "--no-buzz" not in sys.argv:
         measure_buzz([r for r in allrec if not is_hidden(r)], today, CFG["buzz"]["max_games_per_run"])
         measure_moments([r for r in allrec if not is_hidden(r)], today)
+    moment_scores(allrec)   # 測らない回(--no-buzz)も、今ある再生数で付け直す
     send_alerts(today, allrec)
     # 隠している間のお気に入りの試合は、比べる相手にも入れない(順位の抜けからバレないように)
     for r in allrec:

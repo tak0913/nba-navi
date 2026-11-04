@@ -226,7 +226,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-05a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-05b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -413,7 +413,7 @@ function renderBd(id,b){
     b.record.pts?bdRow("⑤ 歴史的記録",b.record.pts,0,b.record.items.map(x=>`${esc(x.who)} ${sgn(x.pts)}`)):"",
     bdRow("⑥ いつものスタメンの欠場",b.absence.pts,0,ab.concat(ab.length&&b.flow.pts>=(DATA.rules.absence_soften_flow??30)?["展開の点が高い試合なので減点は半分"]:[])),
     bdRow("余韻(試合後にどれだけ話題になったか)",b.buzz.pts,0,[`同じ夜の試合の中での話題の大きさ(100%が一番):1日後 ${pc(bz.d1)}/7日後 ${pc(bz.d7)}/30日後 ${pc(bz.d30)}`,"測れた分の平均で決まるから、7日後・30日後に点が動くよ"]),
-    bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?["切り抜き動画が、そのチームにしては大きく伸びた"]:[]),
+    bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?[`切り抜き動画が、そのチームのいつもの${b.moment.ratio??"?"}倍見られた`]:(b.moment.ratio?[`切り抜き動画はいつもの${b.moment.ratio}倍(${(DATA.moment||{}).ratio??2}倍から加点)`]:[])),
   ].join("");
   return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div>${b.guide?`<div class="guide">▶ ${esc(b.guide)}</div>`:""}<div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
     ${rateBox(id,b.votes||{})}
@@ -605,7 +605,7 @@ function renderHelp(){
     <b>④ チーム(最大10)</b>:強み同士の対決 +5/今日だけ異常に良い攻撃・守備 +5ずつ<br><br>
     <b>⑤ 歴史的記録(上限なし・格は掛けない)</b>:60点 +${P.record60??20}/70点以上 +${P.record70??40}/20-20-20 +${P.record60??20}/クアドルプルダブル +${P.record70??40}。70点以上とクアドルプルダブルは自動でSS候補<br><br>
     <span style="color:var(--sub)">勝負が決まった後(第4Q残り5分以降で20点差以上)の点は数えない。ただし、そのあと10点差以内まで詰まったら数える。</span>`)}
-  ${sec("6. 余韻(民衆の声)",`試合の1日後・7日後・30日後に、ニュースの媒体数・地元以外の媒体数・ハイライト動画の再生数などを測る。人気チームの偏りを抑えるため、同じ夜の試合の中で何番目かに直して使う。一番騒がれたら+15点、一番静かでも−5点まで。殿堂入りはこの「30日後の余韻」で決まる。<br><br><b>名場面ボーナス</b>:切り抜き動画は「KDがポスタライズ」みたいに選手名だけで、しかも色んな人がショートで上げ直して出回るので、主力選手の名前でも探して、ショートと日本語の動画も含めた再生数の合計を見る。それが「そのチームにしては」何倍伸びたか(両チームの過去の試合と比べる)が同じ夜で1位なら+${(DATA.moment||{}).top_bonus??10}点、上位なら+${(DATA.moment||{}).high_bonus??5}点(1日後と7日後に測って大きい方)。`)}
+  ${sec("6. 余韻(民衆の声)",`試合の1日後・7日後・30日後に、ニュースの媒体数・地元以外の媒体数・ハイライト動画の再生数などを測る。人気チームの偏りを抑えるため、同じ夜の試合の中で何番目かに直して使う。一番騒がれたら+15点、一番静かでも−5点まで。殿堂入りはこの「30日後の余韻」で決まる。<br><br><b>名場面ボーナス</b>:切り抜き動画は「KDがポスタライズ」みたいに選手名だけで、しかも色んな人がショートで上げ直して出回るので、主力選手の名前でも探して、ショートと日本語の動画も含めた再生数の合計を見る。それが「そのチームにしては」何倍伸びたか(両チームの過去の試合の真ん中の値と比べる)で決める。${(DATA.moment||{}).ratio??2}倍以上なら+${(DATA.moment||{}).bonus??5}点、${(DATA.moment||{}).ratio_big??3}倍以上なら+${(DATA.moment||{}).bonus_big??10}点(${((DATA.moment||{}).min_views??300000)/10000}万再生未満は0点)。同じ夜のほかの試合とは比べないので、すごい試合が重なった夜は全部に付く。試合の1〜7日後に毎日測って、動画ごとに一番多い再生数を覚えて足すので、検索のたびの数字のブレで点が下がることはない。`)}
   ${sec("HCの因縁(試合前の見どころに1つだけ出る)",(()=>{const ts=DATA.coach_ties||[]; if(!ts.length) return "今は登録なし";
     const by={}; ts.forEach(t=>(by[t.label]=by[t.label]||[]).push(t));
     return Object.entries(by).map(([k,v])=>`<b>${esc(k)}</b><br>${v.map(t=>`・${t.teams.join(" vs ")}:${esc(t.text)}`).join("<br>")}`).join("<br><br>")+`<br><br><span style="color:var(--sub);font-size:12px">HCが代わったり、選手が移籍したら自動で外れる。強さはファイナル再戦>恩師vs教え子>古巣>師弟対決>一門の順</span>`})())}
