@@ -1,0 +1,15 @@
+{
+  "_note": "その会場での迎えられ方。boo=毎回ブーイング、ovation=帰ってくるとスタンディングオベーション。arena=その会場のチーム。選手が今その会場のチームにいない(アウェイで乗り込む)試合だけ出す。よく知られているものだけ。Claudeが案を出し、ユーザーが決める",
+  "items": [
+    {"player": "James Harden", "arena": "PHI", "type": "boo", "why": "2023年に半ば強引にトレードを求めて出ていった"},
+    {"player": "James Harden", "arena": "HOU", "type": "ovation", "why": "ロケッツの黄金期を背負った、今も愛されるレジェンド"},
+    {"player": "James Harden", "arena": "BKN", "type": "boo", "why": "1年ちょっとでトレードを求めてネッツを去った"},
+    {"player": "Kevin Durant", "arena": "OKC", "type": "boo", "why": "2016年にウォリアーズへ移籍して以来、今も敵扱い"},
+    {"player": "Kyrie Irving", "arena": "BOS", "type": "boo", "why": "セルティックスを去り、ロゴを踏みつけたこともある"},
+    {"player": "Luka Doncic", "arena": "DAL", "type": "ovation", "why": "突然のトレードで去った、マブスファンの永遠の英雄"},
+    {"player": "Anthony Davis", "arena": "NO", "type": "boo", "why": "2019年にトレードを要求してペリカンズを去った"},
+    {"player": "Paul George", "arena": "IND", "type": "boo", "why": "トレードを求めてペイサーズを去った"},
+    {"player": "Paul George", "arena": "LAC", "type": "boo", "why": "クリッパーズを出てシクサーズへ移った"},
+    {"player": "Kawhi Leonard", "arena": "SA", "type": "boo", "why": "2018年にトレードを求めてスパーズを去った"}
+  ]
+}

@@ -1165,6 +1165,17 @@ def add_trivia(games_days, records, roster_cache):
             # HCの因縁(全部)
             for t in valid_ties(ab_ids, roster_cache, list(ab_ids)):
                 items.append({"kind": t["label"], "text": t["text"], "big": t["rank"] <= 2, "rank": 10 + t["rank"]})
+            # その会場での迎えられ方(ブーイング/スタンディングオベーション)。選手がアウェイで乗り込む試合だけ
+            home = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "home")
+            away = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "away")
+            away_names = {norm(a.get("displayName", "")): a.get("displayName") for a in roster_cache.get(ab_ids[away], [])}
+            for rc in load_json(os.path.join(HERE, "receptions.json"), {}).get("items", []):
+                nm = away_names.get(norm(rc["player"]))
+                if rc["arena"] == home and nm and norm(nm) not in outs.get(away, set()):
+                    if rc["type"] == "boo":
+                        items.append({"kind": "ブーイング", "text": f"{short_name(nm)}はこの会場では毎回ブーイング({rc['why']})", "big": True, "rank": 1})
+                    else:
+                        items.append({"kind": "大歓迎", "text": f"{short_name(nm)}がここに帰ってくると毎回スタンディングオベーション({rc['why']})", "big": True, "rank": 1})
             for ab, tid in ab_ids.items():
                 opp = next(x for x in ab_ids if x != ab)
                 hist_games = [r for r in before if ab in (r["home"], r["away"]) and ab in (r.get("lineup") or {})]
@@ -1222,10 +1233,8 @@ def add_trivia(games_days, records, roster_cache):
                             homecoming = bool(last_other) and last_other[-1][0] == opp and \
                                 not any(opp in (r["home"], r["away"]) for r in hist_games)
                             jn = team_ja.get(opp, opp)
-                            if homecoming:
+                            if homecoming:   # 「元◯◯」だけの小話はみんな知ってるので出さない。移籍後はじめての古巣戦だけ
                                 items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦", "big": True, "rank": 1})
-                            else:
-                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}は元{jn}({games}試合在籍)", "big": False, "rank": 35})
             items.sort(key=lambda x: x["rank"])
             g["trivia"] = [{k: v for k, v in x.items() if k != "rank"} for x in items]
             big = next((x for x in items if x["big"]), None)
@@ -1725,6 +1734,30 @@ def watch_guide(out, tier):
     return "フルハイライト(約10分)で十分" if tier in ("B", "C") else "見なくてもいいかも。気になるならハイライトで"
 
 
+def write_ics(games_days, out_dir):
+    """まだ始まっていない試合のカレンダー用ファイル(docs/cal/<試合id>.ics)。
+    ファイルとして置くと、ホーム画面のアプリからでも、どのカレンダーアプリでも開ける"""
+    d = os.path.join(out_dir, "cal")
+    os.makedirs(d, exist_ok=True)
+    stamp = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    for day in games_days:
+        for g in day["games"]:
+            if g.get("state") != "pre" or not g.get("start_utc"):
+                continue
+            st = dt.datetime.fromisoformat(g["start_utc"].replace("Z", "+00:00"))
+            en = st + dt.timedelta(minutes=150)
+            f = lambda x: x.strftime("%Y%m%dT%H%M%SZ")
+            h = next(t for t in g["teams"] if t["homeAway"] == "home")
+            a = next(t for t in g["teams"] if t["homeAway"] == "away")
+            lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//nba-navi//JP", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+                     "BEGIN:VEVENT", f"UID:{g['id']}@nba-navi", f"DTSTAMP:{stamp}", f"DTSTART:{f(st)}", f"DTEND:{f(en)}",
+                     f"SUMMARY:NBA {a['abbr']} @ {h['abbr']}", f"LOCATION:{g.get('venue', '')}",
+                     "DESCRIPTION:NBA 観戦ナビ https://tak0913.github.io/nba-navi/",
+                     "BEGIN:VALARM", "TRIGGER:-PT15M", "ACTION:DISPLAY", "DESCRIPTION:まもなく試合開始", "END:VALARM",
+                     "END:VEVENT", "END:VCALENDAR"]
+            open(os.path.join(d, f"{g['id']}.ics"), "w", encoding="utf-8", newline="").write("\r\n".join(lines) + "\r\n")
+
+
 def write_breakdowns(records, out_dir):
     """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
     d = os.path.join(out_dir, "b")
@@ -1888,6 +1921,7 @@ def main():
     out_dir = os.environ.get("OUT_DIR", HERE)
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
     write_breakdowns(records, out_dir)
+    write_ics(days + future, out_dir)
 
     # 通知:持ち主用(config の favorites)
     open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))
