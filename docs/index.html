@@ -125,6 +125,7 @@ th{color:var(--sub);font-weight:500}
 .pvm{display:flex;align-items:center;flex-wrap:wrap;gap:4px;font-weight:700;font-size:13.5px}
 .pvp{display:inline-flex;align-items:center;gap:4px} .vs{color:var(--sub);font-size:11px;font-weight:400;margin:0 2px}
 .pvr{color:var(--sub);font-size:12px;margin-top:1px}
+.pvt{font-size:12px;margin-top:3px;color:#ffd0a8} .pvt b{display:inline-block;font-size:10px;color:var(--bg);background:var(--brand);border-radius:4px;padding:0 5px;margin-right:4px;vertical-align:1px}
 .jn{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 3px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:-.02em;margin-right:5px;vertical-align:-5px;box-shadow:0 0 0 1.5px rgba(255,255,255,.12) inset;font-variant-numeric:tabular-nums}
 .aces .jn{min-width:19px;height:19px;font-size:10px;margin-right:4px;vertical-align:-4px}
 .rate{margin:12px 0 4px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
@@ -197,7 +198,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04f";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04g";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -289,7 +290,8 @@ function previewHTML(g){
   if(typeof pv==="string") return `<div class="pv">見どころ:${esc(pv)}</div>`;
   const vs=pv.vs?pv.vs.map(([ab,full,short])=>`<span class="pvp">${jn(ab,jerseyOf(ab,full,g))}${esc(short)}</span>`).join('<span class="vs">vs</span>'):"";
   const rest=pv.rest?`<div class="pvr">${esc(pv.rest)}</div>`:"";
-  return (vs||rest)?`<div class="pv">${vs?`<div class="pvm">${vs}</div>`:""}${rest}</div>`:"";
+  const tie=pv.tie?`<div class="pvt"><b>${esc(pv.tie.label)}</b> ${esc(pv.tie.text)}</div>`:"";
+  return (vs||rest||tie)?`<div class="pv">${vs?`<div class="pvm">${vs}</div>`:""}${tie}${rest}</div>`:"";
 }
 function roster(g,t){
   const rows=(g.rosters[t.abbr]||[]).map(p=>`<div class="pl">${p.jersey!==""?jn(t.abbr,p.jersey):'<span class="jn" style="background:var(--panel2)"></span>'}${esc(p.name)} <small style="color:var(--sub)">${esc(p.pos)}</small>${p.tier!=="other"?`<span class="tier ${p.tier}">${TIER_SHORT[p.tier]}</span>`:""}${p.status?`<span class="st chip ${chipClass(p.status)}">${p.status}${p.detail?"・"+esc(p.detail):""}${p.ret?"<br>"+esc(p.ret):""}</span>`:""}</div>`).join("");
@@ -542,6 +544,9 @@ function renderHelp(){
     <b>⑤ 歴史的記録(上限なし・格は掛けない)</b>:60点 +${P.record60??20}/70点以上 +${P.record70??40}/20-20-20 +${P.record60??20}/クアドルプルダブル +${P.record70??40}。70点以上とクアドルプルダブルは自動でSS候補<br><br>
     <span style="color:var(--sub)">勝負が決まった後(第4Q残り5分以降で20点差以上)の点は数えない。ただし、そのあと10点差以内まで詰まったら数える。</span>`)}
   ${sec("6. 余韻(民衆の声)",`試合の1日後・7日後・30日後に、ニュースの媒体数・地元以外の媒体数・ハイライト動画の再生数などを測る。人気チームの偏りを抑えるため、同じ夜の試合の中で何番目かに直して使う。一番騒がれたら+15点、一番静かでも−5点まで。殿堂入りはこの「30日後の余韻」で決まる。<br><br><b>名場面ボーナス</b>:切り抜き動画は「KDがポスタライズ」みたいに選手名だけで、しかも色んな人がショートで上げ直して出回るので、主力選手の名前でも探して、ショートと日本語の動画も含めた再生数の合計を見る。それが「そのチームにしては」何倍伸びたか(両チームの過去の試合と比べる)が同じ夜で1位なら+${(DATA.moment||{}).top_bonus??10}点、上位なら+${(DATA.moment||{}).high_bonus??5}点(1日後と7日後に測って大きい方)。`)}
+  ${sec("HCの因縁(試合前の見どころに1つだけ出る)",(()=>{const ts=DATA.coach_ties||[]; if(!ts.length) return "今は登録なし";
+    const by={}; ts.forEach(t=>(by[t.label]=by[t.label]||[]).push(t));
+    return Object.entries(by).map(([k,v])=>`<b>${esc(k)}</b><br>${v.map(t=>`・${t.teams.join(" vs ")}:${esc(t.text)}`).join("<br>")}`).join("<br><br>")+`<br><br><span style="color:var(--sub);font-size:12px">HCが代わったり、選手が移籍したら自動で外れる。強さはファイナル再戦>恩師vs教え子>古巣>師弟対決>一門の順</span>`})())}
   ${sec("7. 月末の決選投票(民衆が決める)",`毎月2日に、先月のS・Aの試合と「物語」(シーズンを通した50点ゲームの量産や、今まさに燃えている因縁の対決など。めったに出ない)を候補にして、公式Blueskyで投票を始める。<br>
     ・投票は候補の投稿に「いいね」(リポストも1票)<br>
     ・8日の12時に締め切って、上位${(DATA.vote||{}).winners??3}つを1段格上げ(A→S、S→SS候補)<br>

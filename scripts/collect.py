@@ -1045,6 +1045,51 @@ def apply_absence(records):
     return records
 
 
+COACH_BY_TEAMID = {}   # チームid → 今のHC(ロスターと一緒に取れる)
+try:
+    COACH_TIES = json.load(open(os.path.join(HERE, "coach_ties.json"), encoding="utf-8"))
+except Exception:
+    COACH_TIES = {"ties": [], "kinds": {}}
+
+
+def fetch_roster(tid):
+    d = get(f"{API}/teams/{tid}/roster")
+    c = (d.get("coach") or [{}])[0]
+    if c.get("lastName"):
+        COACH_BY_TEAMID[str(tid)] = f"{c.get('firstName', '')} {c['lastName']}".strip()
+    return d.get("athletes", [])
+
+
+def _cn(name):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", name or "")
+    return re.sub(r"[^a-z]", "", "".join(c for c in t if not unicodedata.combining(c)).lower())
+
+
+def valid_ties(ids, roster_cache, pair=None):
+    """今も成り立っているHCの因縁(HCが代わった・選手が移籍したものは出さない)。ids = チーム略称→チームid"""
+    out = []
+    for t in COACH_TIES.get("ties", []):
+        if pair and set(t["teams"]) != set(pair):
+            continue
+        ok = all(_cn(COACH_BY_TEAMID.get(str(ids.get(ab)), "")) == _cn(nm) for ab, nm in t.get("coaches", {}).items())
+        for ab, pl in t.get("players", {}).items():
+            names = {_cn(a.get("displayName")) for a in roster_cache.get(ids.get(ab), [])}
+            ok = ok and _cn(pl) in names
+        if ok:
+            out.append(dict(t, label=COACH_TIES.get("kinds", {}).get(t["kind"], "")))
+    return sorted(out, key=lambda t: t["rank"])
+
+
+def coach_ties_all(roster_cache):
+    """使い方ページの一覧用(今も成り立っているものだけ)"""
+    try:
+        ids = {t["team"]["abbreviation"]: t["team"]["id"] for t in get(f"{API}/teams")["sports"][0]["leagues"][0]["teams"]}
+    except Exception:
+        return []
+    return [{"teams": t["teams"], "label": t["label"], "text": t["text"]} for t in valid_ties(ids, roster_cache)]
+
+
 def star_jerseys(tinfo, roster_cache):
     """エース表の選手の背番号(背番号アイコン用)。今日〜あさってに試合がないチームのロスターもここで取る"""
     ids = {}
@@ -1060,7 +1105,7 @@ def star_jerseys(tinfo, roster_cache):
         tid = ids[ab]
         if tid not in roster_cache:
             try:
-                roster_cache[tid] = get(f"{API}/teams/{tid}/roster").get("athletes", [])
+                roster_cache[tid] = fetch_roster(tid)
             except Exception:
                 roster_cache[tid] = []
         by = {norm(a["displayName"]): a.get("jersey", "") for a in roster_cache[tid]}
@@ -1068,7 +1113,7 @@ def star_jerseys(tinfo, roster_cache):
     return out
 
 
-def preview_line(teams, out_pre, pdet, clash):
+def preview_line(teams, out_pre, pdet, clash, roster_cache=None):
     """試合前の見どころ(ネタバレにならない、試合前にわかることだけ)"""
     order = {"mvp": 0, "allstar": 1, "ace": 2}
     tops = []
@@ -1091,7 +1136,9 @@ def preview_line(teams, out_pre, pdet, clash):
                 out.append(f"{'と'.join(outs)}欠場")
     if clash:
         out.append("強み同士の対決")
-    return {"vs": tops if all(tops) else None, "rest": " / ".join(out[:3])}
+    ties = valid_ties({t["abbr"]: t["id"] for t in teams}, roster_cache or {}, [t["abbr"] for t in teams])
+    tie = {"label": ties[0]["label"], "text": ties[0]["text"]} if ties else None
+    return {"vs": tops if all(tops) else None, "rest": " / ".join(out[:3]), "tie": tie}
 
 
 def build_game(e, start, season, strong, roster_cache):
@@ -1117,7 +1164,7 @@ def build_game(e, start, season, strong, roster_cache):
     rosters = {}
     for t in teams:
         if t["id"] not in roster_cache:
-            roster_cache[t["id"]] = get(f"{API}/teams/{t['id']}/roster").get("athletes", [])
+            roster_cache[t["id"]] = fetch_roster(t["id"])
         rows = []
         for a in roster_cache[t["id"]]:
             st = inj.get(t["abbr"], {}).get(norm(a["displayName"]))
@@ -1143,7 +1190,7 @@ def build_game(e, start, season, strong, roster_cache):
         "rosters": rosters,
         "strengths": {t["abbr"]: strong.get(t["abbr"], []) for t in teams},
         "expect": expect_stars(card_pre, clash),
-        "preview": preview_line(teams, out_pre, pdet, clash),
+        "preview": preview_line(teams, out_pre, pdet, clash, roster_cache),
         "result": None,
     }
     rec = None
@@ -1708,6 +1755,7 @@ def main():
             "topic_prefix": CFG["public_topic_prefix"],
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
             "jerseys": star_jerseys(tinfo, roster_cache),
+            "coach_ties": coach_ties_all(roster_cache),
             "days": days, "future": future, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
             "suggest_topic": CFG.get("suggest_topic"), "rivalries": load_json(os.path.join(HERE, "rivalries.json"), {}),
             "suggested": suggested_pairs()}
