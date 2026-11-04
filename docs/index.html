@@ -40,6 +40,8 @@ nav button.on{background:var(--text);color:var(--bg);border-color:var(--text);fo
 main{padding:12px 12px 60px;max-width:720px;margin:0 auto}
 .days{display:flex;gap:6px;margin-bottom:12px}
 .days button{flex:1;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-size:13px}
+.days.five button{padding:6px 2px;font-size:12px;line-height:1.25}
+.days.five button span{display:block;font-size:11px;font-weight:700}
 .days button.on{border-color:var(--brand);color:var(--text);font-weight:700;background:rgba(255,122,61,.08)}
 .card{--tc:#3a4150;background:var(--panel);border:1.5px solid var(--line);border-radius:16px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
 .card.home{border-color:color-mix(in srgb,var(--tc) 60%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--tc) 13%,var(--panel)) 0,var(--panel) 120px)}
@@ -117,6 +119,8 @@ th{color:var(--sub);font-weight:500}
 .whybtn.on{border-color:var(--brand);color:var(--brand)}
 .whyin{font-size:12.5px;color:var(--text);margin-top:3px;font-weight:600}
 .whyin:empty{display:none}
+.guide{font-size:13px;color:var(--brand);margin:0 0 6px;font-weight:600}
+.cal{margin-left:6px;background:transparent;border:1px solid var(--line);color:var(--sub);border-radius:8px;padding:1px 7px;font-size:11px;vertical-align:1px}
 .pv{font-size:12.5px;color:var(--text);margin-top:2px}
 .rate{margin:12px 0 4px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .rate .q{font-weight:700;font-size:14px;margin-bottom:8px} .rate .q small{font-weight:400;color:var(--sub);font-size:11px;margin-left:4px}
@@ -188,8 +192,8 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04d";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
-let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
+const APP_VER="2026-11-04e";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
 const TIER_JA={mvp:"MVP級",allstar:"オールスター級",ace:"エース"};
@@ -219,7 +223,7 @@ function computeTiers(){
   DATA.archive.forEach(r=>{r.tier=null;r.ss_confirmed=false;r.season_rank=null;r.month_rank=null;r.up_from=null;r.story=null});
   Tiers.assignTiers(VISIBLE,{T:DATA.tiers,R:DATA.rules,prev:DATA.prev,today:DATA.today,upgrades:DATA.upgrades});
   const byId={}; DATA.archive.forEach(r=>byId[r.id]=r);
-  DATA.days.forEach(d=>d.games.forEach(g=>{
+  allDays().forEach(d=>d.games.forEach(g=>{
     const r=byId[g.id], isFavTeam=!!FAV&&g.teams.some(t=>t.abbr===FAV);
     g.favorite=isFavTeam&&(!r||isHidden(r));
     g.tier=null; g.ss_confirmed=false; g.season_rank=null; g.up_from=null; g.story=null;
@@ -303,7 +307,7 @@ function clampNote(sec,lines){
   return lines;
 }
 function renderBd(id,b){
-  const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id), tier=g&&g.tier?`(${g.tier==="-"?"ランク外":g.tier})`:"";
+  const g=allGames().find(x=>x.id===id), tier=g&&g.tier?`(${g.tier==="-"?"ランク外":g.tier})`:"";
   const chNote=x=>x.career_high!=null?` ★キャリアハイ更新(これまでの最高${x.career_high}点→${x.raw}点)`:"";
   const st=b.stars.items.map(x=>x.k==="moment"?`試合を決めるプレーにスターが絡んだ ${sgn(x.pts)}`
     :x.surprise!=null
@@ -324,7 +328,7 @@ function renderBd(id,b){
     bdRow("余韻(試合後にどれだけ話題になったか)",b.buzz.pts,0,[`同じ夜の試合の中での話題の大きさ(100%が一番):1日後 ${pc(bz.d1)}/7日後 ${pc(bz.d7)}/30日後 ${pc(bz.d30)}`,"測れた分の平均で決まるから、7日後・30日後に点が動くよ"]),
     bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?["切り抜き動画が、そのチームにしては大きく伸びた"]:[]),
   ].join("");
-  return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div><div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
+  return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div>${b.guide?`<div class="guide">▶ ${esc(b.guide)}</div>`:""}<div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
     ${rateBox(id,b.votes||{})}
     <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost">投稿する</button></div>`;
 }
@@ -345,6 +349,21 @@ function sendRate(el){
   fetch("https://ntfy.sh/"+DATA.suggest_topic,{method:"POST",body:JSON.stringify({kind:"rate",game:id,v,dev:devId()})})
     .then(r=>{if(!r.ok) throw 0; const c=document.getElementById("rc_"+id); if(c) c.textContent="ありがとう!みんなの評価は1時間ごとに集計されるよ・あなたは"+RATE_JA[v]})
     .catch(()=>{const c=document.getElementById("rc_"+id); if(c) c.textContent="送れなかった。もう一度押してね"});
+}
+// ---- カレンダーに入れる(iPhone=カレンダーのファイル、それ以外=Googleカレンダー) ----
+function addCal(g){
+  if(!g) return;
+  const [h,a]=g.teams, st=new Date(g.start_utc), en=new Date(st.getTime()+150*60e3);
+  const f=d=>d.toISOString().replace(/[-:]/g,"").replace(/\.\d{3}/,"");
+  const title=`NBA ${a.abbr} @ ${h.abbr}`, desc=`NBA 観戦ナビ https://tak0913.github.io/nba-navi/`;
+  if(/iPhone|iPad|iPod/.test(navigator.userAgent)){
+    const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//nba-navi//JP","BEGIN:VEVENT",`UID:${g.id}@nba-navi`,`DTSTAMP:${f(new Date())}`,
+      `DTSTART:${f(st)}`,`DTEND:${f(en)}`,`SUMMARY:${title}`,`LOCATION:${g.venue||""}`,`DESCRIPTION:${desc}`,
+      "BEGIN:VALARM","TRIGGER:-PT15M","ACTION:DISPLAY","DESCRIPTION:まもなく試合開始","END:VALARM","END:VEVENT","END:VCALENDAR"].join("\r\n");
+    location.href="data:text/calendar;charset=utf-8,"+encodeURIComponent(ics);
+  } else {
+    window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${f(st)}/${f(en)}&details=${encodeURIComponent(desc)}&location=${encodeURIComponent(g.venue||"")}`,"_blank");
+  }
 }
 function loadBd(id){
   const el=document.getElementById("bd_"+id); if(!el) return; el.removeAttribute("data-pending");
@@ -371,16 +390,21 @@ function gameCard(g){
   return `<div class="card${tc?" home":""}" id="g_${g.id}"${tc?` style="--tc:${tc}"`:""}>
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span><span class="hm">${esc(h.abbr)}</span><span class="hmtag">HOME</span></div>
-      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${!g.completed&&g.preview?`<div class="pv">見どころ:${esc(g.preview)}</div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
+      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${!g.completed&&g.preview?`<div class="pv">見どころ:${esc(g.preview)}</div>`:""}${g.state==="pre"&&g.start_utc?`<div><button class="cal" data-act="cal" data-id="${g.id}">📅 カレンダーに入れる</button></div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
     ${quick(g)}${rev}
     <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
       <h3>チームの強み</h3>${str}</div></div>`;
 }
 
+// おととい・昨日・今日・明日・あさっての順(左から日付順)。最初は今日を選ぶ
+const DAY_NAMES=["おととい","昨日","今日","明日","あさって"];
+function allDays(){return DATA.days.slice().reverse().concat(DATA.future||[])}
+function allGames(){return allDays().flatMap(d=>d.games)}
 function renderDay(){
-  const days=DATA.days;
-  const tabs=`<div class="days">${days.map((d,i)=>`<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}">${i===0?"今日":i===1?"昨日":"おととい"} ${md(d.date)}</button>`).join("")}</div>`;
+  const days=allDays(), base=DATA.days.length-1;   // base = 今日の位置
+  if(dayIdx==null||dayIdx>=days.length) dayIdx=base;
+  const tabs=`<div class="days five">${days.map((d,i)=>`<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}"><span>${DAY_NAMES[i-base+2]||""}</span>${md(d.date)}</button>`).join("")}</div>`;
   const gs=days[dayIdx].games;
   const banner=store.get("fav_set")?"":`<div class="banner"><b>推しチームを決めよう</b> 推しの試合はランクを24時間かくして、ネタバレを防ぐよ<button data-act="goset">設定する</button></div>`;
   if(!gs.length) return banner+tabs+`<div class="empty">この日は試合なし</div>`;
@@ -650,16 +674,17 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="wcancel"){document.getElementById("wf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="wask"]').style.display="";return}
   if(act==="watched"){store.set("watched_"+id,"1");computeTiers();render();return}
   if(act==="rate"){sendRate(el);return}
+  if(act==="cal"){addCal(allGames().find(x=>x.id===id));return}
   if(act==="why"){
     const box=document.getElementById("wy_"+id); if(!box) return;
     if(box.textContent){box.textContent="";el.classList.remove("on");return}
     el.classList.add("on"); box.textContent="…";
     fetch("b/"+id+".json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
-      .then(b=>{box.textContent=b.why||"理由はまだないよ"}).catch(()=>{box.textContent="理由はまだないよ"});
+      .then(b=>{box.textContent=(b.why||"理由はまだないよ")+(b.guide?" ▶ "+b.guide:"")}).catch(()=>{box.textContent="理由はまだないよ"});
     return}
   if(act==="hide"){
     // 閉じたら最初の状態に戻す(もう一度見るときはまた確認する)。推しの試合は見たことになるのでランクは出したまま
-    const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);
+    const g=allGames().find(x=>x.id===id);
     if(g&&g.teams.some(t=>t.abbr===FAV)) store.set("watched_"+id,"1");
     store.set("seen_"+id,"");
     const rs=document.getElementById("rs_"+id), ask=rs.closest(".reveal").querySelector('[data-act="ask"]');
@@ -668,7 +693,7 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
-    const g=DATA.days.flatMap(d=>d.games).find(x=>x.id===id);
+    const g=allGames().find(x=>x.id===id);
     const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block"; loadBd(id);
     document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1");
     if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない

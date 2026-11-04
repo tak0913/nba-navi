@@ -61,6 +61,10 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: cd scripts && (python inbox.py || echo "inbox.py failed (続行)")
 
+      # 採点のテスト。失敗したらここで止まり、アプリは前の状態のまま(壊れた採点を出さない)
+      - name: 採点のテスト
+        run: cd scripts && python tests/run_tests.py
+
       - name: データ収集と採点
         run: |
           cd scripts

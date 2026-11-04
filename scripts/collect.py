@@ -1114,7 +1114,7 @@ def build_game(e, start, season, strong, roster_cache):
     clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
     st = e.get("season", {})
     g = {
-        "id": e["id"], "date": start.date().isoformat(), "start": start.strftime("%H:%M"),
+        "id": e["id"], "date": start.date().isoformat(), "start": start.strftime("%H:%M"), "start_utc": e.get("date"),
         "type": SEASON_TYPE.get(st.get("type"), "other"),
         "state": state, "completed": completed,
         "venue": comp.get("venue", {}).get("fullName", ""),
@@ -1512,6 +1512,31 @@ def rating_gaps(records):
     return out
 
 
+LATE = {"クラッチ(終盤の接戦)", "最後の攻撃までもつれた", "終盤の猛追", "終盤の大逆転", "ブザービーター", "試合を決める守備"}
+
+
+def watch_guide(out, tier):
+    """どこから見ればいいか(タイパ用)。終盤の流れがわかるのでネタバレ。結果を開いた人・理由ボタンを押した人にだけ見せる"""
+    fl = {x["txt"] for x in out["flow"]["items"]}
+    late = bool(fl & LATE) or "延長" in fl
+    whole = "20点差以上の逆転" in fl
+    star = out["stars"]["pts"] >= 25
+    top = tier in ("SS", "S", "A")
+    if top and whole:
+        return "本編を最初から(約2時間15分)。大逆転の流れごと見てほしい"
+    if top and late:
+        return "本編を最初から(約2時間15分)。時間がなければ第4Qから(約40分)"
+    if top:
+        return "本編を最初から(約2時間15分)"
+    if late and not star:
+        return "第4Qから(約40分)で十分"
+    if late:
+        return "後半から(約1時間10分)"
+    if star:
+        return "フルハイライト(約10分)で十分。スターの見せ場はそこに入ってる"
+    return "フルハイライト(約10分)で十分" if tier in ("B", "C") else "見なくてもいいかも。気になるならハイライトで"
+
+
 def write_breakdowns(records, out_dir):
     """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
     d = os.path.join(out_dir, "b")
@@ -1528,6 +1553,7 @@ def write_breakdowns(records, out_dir):
         out["moment"] = {"pts": moment_bonus(r)}
         out["total"] = fs(r)
         out["why"] = why_line(out)
+        out["guide"] = watch_guide(out, r.get("tier") or "-")
         v = list((RATINGS_DATA.get(str(r["id"])) or {}).values())
         out["votes"] = {k: v.count(k) for k in ("good", "ok", "bad")}
         json.dump(out, open(os.path.join(d, f"{r['id']}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
@@ -1600,6 +1626,19 @@ def main():
                 archive[rec["id"]] = rec
         days.append({"date": d.isoformat(), "games": [g for g, _ in res]})
 
+    # 明日・あさっての予定(まだ始まっていないので、ロスター・欠場情報・見どころだけ)
+    future = []
+    for ahead in (1, 2):
+        d = today + dt.timedelta(days=ahead)
+        try:
+            evs = [x for x in events_for_jst_date(d)
+                   if SEASON_TYPE.get(x[0].get("season", {}).get("type")) != "pre"]
+            with ThreadPoolExecutor(6) as ex:
+                res = list(ex.map(lambda es: build_game(es[0], es[1], season, strong, roster_cache), evs))
+        except Exception:
+            res = []
+        future.append({"date": d.isoformat(), "games": [g for g, _ in res]})
+
     if "--no-buzz" not in sys.argv:
         load_careers(list(archive.values()), CFG.get("career_fetch_per_run", 40))
     else:
@@ -1647,7 +1686,7 @@ def main():
             "team_colors": {k: v["color"] for k, v in tinfo.items()},
             "topic_prefix": CFG["public_topic_prefix"],
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
-            "days": days, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
+            "days": days, "future": future, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
             "suggest_topic": CFG.get("suggest_topic"), "rivalries": load_json(os.path.join(HERE, "rivalries.json"), {}),
             "suggested": suggested_pairs()}
     out_dir = os.environ.get("OUT_DIR", HERE)

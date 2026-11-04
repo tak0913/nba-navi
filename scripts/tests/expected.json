@@ -1,0 +1,44 @@
+{
+ "CHI_PHI": {
+  "content": 14.0,
+  "flow": 0,
+  "flow_items": [],
+  "stars": 4.0,
+  "card": 10,
+  "record": 0,
+  "star_players": [
+   "Caleb Wilson"
+  ]
+ },
+ "HOU_DAL": {
+  "content": 105,
+  "flow": 35,
+  "flow_items": [
+   "クラッチ(終盤の接戦)",
+   "最後の攻撃までもつれた"
+  ],
+  "stars": 50,
+  "card": 20,
+  "record": 0,
+  "star_players": [
+   "Amen Thompson",
+   "Cooper Flagg",
+   "Kyrie Irving"
+  ]
+ },
+ "PHI_CHA": {
+  "content": 66.5,
+  "flow": 35,
+  "flow_items": [
+   "クラッチ(終盤の接戦)",
+   "最後の攻撃までもつれた"
+  ],
+  "stars": 21.5,
+  "card": 10,
+  "record": 0,
+  "star_players": [
+   "Grayson Allen",
+   "Tyrese Maxey"
+  ]
+ }
+}
