@@ -224,7 +224,9 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04m";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04n";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+// 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
+const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -446,7 +448,7 @@ function loadBd(id){
 }
 function loadPendingBd(){document.querySelectorAll('.bd[data-pending]').forEach(e=>loadBd(e.id.slice(3)))}
 function gameCard(g){
-  const [h,a]=g.teams, seen=store.get("seen_"+g.id)==="1";
+  const [h,a]=g.teams, seen=OPEN.has(g.id);
   const str=g.teams.slice().reverse().map(t=>`<div class="str"><b>${t.abbr}</b>:${(g.strengths[t.abbr]||[]).length?g.strengths[t.abbr].map(esc).join("、"):"目立った強みなし(今季)"}</div>`).join("");
   let rev="";
   if(g.completed&&g.favorite){
@@ -732,21 +734,21 @@ function render(){
   m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="trivia"?renderTrivia():view==="settings"?renderSettings():view==="post"?renderPost():renderHelp();
   loadPendingBd();
 }
-document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
+document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;OPEN.clear();view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
 document.getElementById("main").addEventListener("click",e=>{
   const el=e.target.closest("[data-act]"); if(!el) return;
   const id=el.dataset.id, act=el.dataset.act;
   if(act==="pkind"){postKind=el.dataset.k;render();return}
   if(act==="heat"){postHeat=el.dataset.k;document.querySelectorAll('[data-act="heat"]').forEach(x=>x.classList.toggle("on",x===el));return}
   if(act==="send"){sendPost(el);return}
-  if(act==="day"){dayIdx=+el.dataset.i;render();return}
+  if(act==="day"){OPEN.clear();dayIdx=+el.dataset.i;render();return}
   if(act==="scope"){scope=el.dataset.k;period=null;render();return}
   if(act==="stype"){stype=el.dataset.k;period=null;render();return}
   if(act==="period"){period=el.dataset.k;render();return}
   if(act==="all"){showAll=!showAll;render();return}
   if(act==="ob"){showOb(0);return}
-  if(act==="gopost"){view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
-  if(act==="goset"){view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
+  if(act==="gopost"){OPEN.clear();view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
+  if(act==="goset"){OPEN.clear();view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
   if(act==="copy"){const t=document.getElementById("topic").textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{el.textContent="コピーした"}).catch(()=>{el.textContent="長押しでコピーしてね"});return}
   if(act==="toggle"){document.getElementById("g_"+id).classList.toggle("open");return}
@@ -766,7 +768,7 @@ document.getElementById("main").addEventListener("click",e=>{
     // 閉じたら最初の状態に戻す(もう一度見るときはまた確認する)。推しの試合は見たことになるのでランクは出したまま
     const g=allGames().find(x=>x.id===id);
     if(g&&g.teams.some(t=>t.abbr===FAV)) store.set("watched_"+id,"1");
-    store.set("seen_"+id,"");
+    store.set("seen_"+id,""); OPEN.delete(id);
     const rs=document.getElementById("rs_"+id), ask=rs.closest(".reveal").querySelector('[data-act="ask"]');
     rs.innerHTML=""; rs.style.display="none"; if(ask) ask.style.display="";
     document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
@@ -775,10 +777,13 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="show"){
     const g=allGames().find(x=>x.id===id);
     const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block"; loadBd(id);
-    document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1");
+    document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1"); OPEN.add(id);
     if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない
   }
 });
+// アプリを離れたら(ホームに戻る・別のアプリ・画面を消す)開いていた結果を閉じる。戻ってきたときにネタバレが出たままにならないように
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&OPEN.size){OPEN.clear();if(DATA)render()}});
+window.addEventListener("pagehide",()=>{OPEN.clear()});
 // ---- LINEで送る(アプリのリンクだけ。試合の結果やランクは送らない) ----
 const SHARE_URL="https://tak0913.github.io/nba-navi/";
 const SHARE_TEXT="NBA 観戦ナビ:ネタバレなしで「この試合は見るべきか」がわかるアプリ🏀\n"+SHARE_URL;
