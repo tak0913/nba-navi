@@ -9,8 +9,10 @@
 <meta property="og:description" content="ネタバレなしで「この試合は見るべきか」がわかる。ランク(SS〜C)・欠場情報・推しチーム設定・通知つき。">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://tak0913.github.io/nba-navi/">
-<meta property="og:image" content="https://tak0913.github.io/nba-navi/icon-512.png">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://tak0913.github.io/nba-navi/ogp.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:site_name" content="NBA 観戦ナビ">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -29,6 +31,8 @@ header{position:sticky;top:0;padding-top:env(safe-area-inset-top);z-index:5;back
 .top{display:flex;align-items:baseline;justify-content:space-between;padding:12px 16px 4px}
 .top h1{font-size:19px;margin:0;letter-spacing:.04em;font-weight:800}
 .top .upd{font-size:11px;color:var(--sub)}
+.top .tr{display:flex;align-items:center;gap:8px}
+.share{background:#06c755;color:#fff;border:0;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700}
 nav{display:flex;gap:4px;padding:6px 10px 10px;overflow-x:auto}
 nav{scrollbar-width:none} nav::-webkit-scrollbar{display:none}
 nav button{flex:none;background:transparent;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;transition:all .15s}
@@ -162,7 +166,7 @@ th{color:var(--sub);font-weight:500}
 </head>
 <body>
 <header>
-  <div class="top"><h1>🏀 NBA 観戦ナビ</h1><span class="upd" id="upd"></span></div>
+  <div class="top"><h1>🏀 NBA 観戦ナビ</h1><span class="tr"><span class="upd" id="upd"></span><button class="share" data-share="1" aria-label="LINEで送る">LINEで送る</button></span></div>
   <nav id="nav">
     <button data-v="day" class="on">試合</button>
     <button data-v="tiers">ティア表</button>
@@ -178,7 +182,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-03o";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -539,6 +543,9 @@ function renderSettings(){
       <li>ntfyを開いて右上の「+」</li>
       <li>上のチャンネル名を貼り付けて登録</li></ol>
     <div style="color:var(--sub);font-size:12px;margin-top:8px">推しチームを変えたら、ntfyのチャンネルも登録し直してね(推しの試合を外した通知がチャンネルごとに届く)。</div></div>
+  <div class="set"><h4>友達に教える</h4>
+    <div style="display:flex;gap:8px"><button class="copy" data-share="line" style="flex:1;background:#06c755;color:#fff">LINEで送る</button><button class="copy" data-share="other" style="flex:1">ほかの方法で共有</button></div>
+    <div style="color:var(--sub);font-size:12px;margin-top:8px">送るのはアプリのリンクだけ。試合の結果やランクは送らないよ</div></div>
   <div class="set"><h4>使い方</h4><button class="copy" data-act="ob" style="width:100%">使い方をもう一度見る</button></div>
   <div class="set"><h4>この端末の情報</h4><div style="color:var(--sub);font-size:13px">推し:${FAV?esc(DATA.teams[FAV]||FAV):"なし"}<br>データ更新:${DATA.generated_at.replace("T"," ")}</div></div>`;
 }
@@ -641,6 +648,15 @@ document.getElementById("main").addEventListener("click",e=>{
     if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない
   }
 });
+// ---- LINEで送る(アプリのリンクだけ。試合の結果やランクは送らない) ----
+const SHARE_URL="https://tak0913.github.io/nba-navi/";
+const SHARE_TEXT="NBA 観戦ナビ:ネタバレなしで「この試合は見るべきか」がわかるアプリ🏀\n"+SHARE_URL;
+function shareLine(){ location.href="https://line.me/R/share?text="+encodeURIComponent(SHARE_TEXT) }
+function shareOther(){
+  if(navigator.share) navigator.share({title:"NBA 観戦ナビ",text:"ネタバレなしで「この試合は見るべきか」がわかるアプリ🏀",url:SHARE_URL}).catch(()=>{});
+  else (navigator.clipboard?navigator.clipboard.writeText(SHARE_URL):Promise.reject()).then(()=>alert("リンクをコピーしたよ")).catch(()=>{});
+}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-share]");if(!b)return;b.dataset.share==="other"?shareOther():shareLine()});
 document.getElementById("main").addEventListener("change",e=>{
   if(e.target.id==="favsel"){FAV=e.target.value;store.set("fav",FAV);store.set("fav_set","1");computeTiers();render()}
 });
