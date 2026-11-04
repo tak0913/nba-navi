@@ -1045,6 +1045,29 @@ def apply_absence(records):
     return records
 
 
+def star_jerseys(tinfo, roster_cache):
+    """エース表の選手の背番号(背番号アイコン用)。今日〜あさってに試合がないチームのロスターもここで取る"""
+    ids = {}
+    try:
+        for t in get(f"{API}/teams")["sports"][0]["leagues"][0]["teams"]:
+            ids[t["team"]["abbreviation"]] = t["team"]["id"]
+    except Exception:
+        pass
+    out = {}
+    for ab, lst in STARS.items():
+        if ab.startswith("_") or ab not in ids:
+            continue
+        tid = ids[ab]
+        if tid not in roster_cache:
+            try:
+                roster_cache[tid] = get(f"{API}/teams/{tid}/roster").get("athletes", [])
+            except Exception:
+                roster_cache[tid] = []
+        by = {norm(a["displayName"]): a.get("jersey", "") for a in roster_cache[tid]}
+        out[ab] = {p["name"]: by.get(norm(p["name"]), "") for p in lst}
+    return out
+
+
 def preview_line(teams, out_pre, pdet, clash):
     """試合前の見どころ(ネタバレにならない、試合前にわかることだけ)"""
     order = {"mvp": 0, "allstar": 1, "ace": 2}
@@ -1052,10 +1075,8 @@ def preview_line(teams, out_pre, pdet, clash):
     for t in sorted(teams, key=lambda t: t["homeAway"] != "away"):   # アウェイ vs ホーム の順
         avail = [p for p in star_list(t["abbr"]) if norm(p["name"]) not in out_pre.get(t["abbr"], set())]
         avail.sort(key=lambda p: order.get(p["tier"], 3))
-        tops.append(short_name(avail[0]["name"]) if avail else None)
+        tops.append([t["abbr"], avail[0]["name"], short_name(avail[0]["name"])] if avail else None)
     out = []
-    if all(tops):
-        out.append(f"{tops[0]} vs {tops[1]}")
     riv = load_json(os.path.join(HERE, "rivalries.json"), {}).get("-".join(sorted(t["abbr"] for t in teams)))
     if riv and riv.get("type") == "hot":
         out.append(f"因縁:{riv.get('name')}")
@@ -1070,7 +1091,7 @@ def preview_line(teams, out_pre, pdet, clash):
                 out.append(f"{'と'.join(outs)}欠場")
     if clash:
         out.append("強み同士の対決")
-    return " / ".join(out[:4])
+    return {"vs": tops if all(tops) else None, "rest": " / ".join(out[:3])}
 
 
 def build_game(e, start, season, strong, roster_cache):
@@ -1686,6 +1707,7 @@ def main():
             "team_colors": {k: v["color"] for k, v in tinfo.items()},
             "topic_prefix": CFG["public_topic_prefix"],
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
+            "jerseys": star_jerseys(tinfo, roster_cache),
             "days": days, "future": future, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
             "suggest_topic": CFG.get("suggest_topic"), "rivalries": load_json(os.path.join(HERE, "rivalries.json"), {}),
             "suggested": suggested_pairs()}

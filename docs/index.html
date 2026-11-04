@@ -75,7 +75,7 @@ h3:first-child{margin-top:0}
 .pl .no{color:var(--sub);display:inline-block;width:24px}
 .pl .tier{white-space:nowrap;font-size:10px;padding:0 4px;border-radius:4px;margin-left:4px;vertical-align:1px}
 .tier.mvp{background:var(--ss);color:#000} .tier.allstar{background:var(--a);color:#000} .tier.ace{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
-.pl .st{display:block;font-size:11px;margin-left:24px}
+.pl .st{display:block;font-size:11px;margin-left:27px}
 .str{font-size:13px;margin:2px 0}
 .reveal{margin-top:14px}
 .reveal.top{display:block;margin:0;padding:0 14px 10px;min-width:0}
@@ -121,7 +121,12 @@ th{color:var(--sub);font-weight:500}
 .whyin:empty{display:none}
 .guide{font-size:13px;color:var(--brand);margin:0 0 6px;font-weight:600}
 .cal{margin-left:6px;background:transparent;border:1px solid var(--line);color:var(--sub);border-radius:8px;padding:1px 7px;font-size:11px;vertical-align:1px}
-.pv{font-size:12.5px;color:var(--text);margin-top:2px}
+.pv{font-size:12.5px;color:var(--text);margin-top:4px}
+.pvm{display:flex;align-items:center;flex-wrap:wrap;gap:4px;font-weight:700;font-size:13.5px}
+.pvp{display:inline-flex;align-items:center;gap:4px} .vs{color:var(--sub);font-size:11px;font-weight:400;margin:0 2px}
+.pvr{color:var(--sub);font-size:12px;margin-top:1px}
+.jn{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 3px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:-.02em;margin-right:5px;vertical-align:-5px;box-shadow:0 0 0 1.5px rgba(255,255,255,.12) inset;font-variant-numeric:tabular-nums}
+.aces .jn{min-width:19px;height:19px;font-size:10px;margin-right:4px;vertical-align:-4px}
 .rate{margin:12px 0 4px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .rate .q{font-weight:700;font-size:14px;margin-bottom:8px} .rate .q small{font-weight:400;color:var(--sub);font-size:11px;margin-left:4px}
 .rate .rb{display:flex;gap:6px;margin-bottom:6px}
@@ -192,7 +197,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04e";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04f";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -271,8 +276,23 @@ function quick(g){
   });
   return `<div class="quick">${rows.join("")}</div>`;
 }
+// ---- 背番号アイコン(チームカラーの丸に背番号。選手の写真は使わない) ----
+function tcol(ab){return (DATA.team_colors||{})[ab]||"#3a4150"}
+function inkFor(hex){const n=parseInt(hex.slice(1),16),r=n>>16&255,g=n>>8&255,b=n&255;return (0.299*r+0.587*g+0.114*b)>150?"#0b0d12":"#ffffff"}
+function jn(ab,num){if(num==null||num==="") return ""; const c=tcol(ab); return `<span class="jn" style="background:${c};color:${inkFor(c)}">${esc(num)}</span>`}
+function jerseyOf(ab,name,g){
+  const r=g&&(g.rosters[ab]||[]).find(p=>p.name===name); if(r) return r.jersey;
+  return ((DATA.jerseys||{})[ab]||{})[name]||"";
+}
+function previewHTML(g){
+  const pv=g.preview; if(!pv) return "";
+  if(typeof pv==="string") return `<div class="pv">見どころ:${esc(pv)}</div>`;
+  const vs=pv.vs?pv.vs.map(([ab,full,short])=>`<span class="pvp">${jn(ab,jerseyOf(ab,full,g))}${esc(short)}</span>`).join('<span class="vs">vs</span>'):"";
+  const rest=pv.rest?`<div class="pvr">${esc(pv.rest)}</div>`:"";
+  return (vs||rest)?`<div class="pv">${vs?`<div class="pvm">${vs}</div>`:""}${rest}</div>`:"";
+}
 function roster(g,t){
-  const rows=(g.rosters[t.abbr]||[]).map(p=>`<div class="pl"><span class="no">${esc(p.jersey)}</span>${esc(p.name)} <small style="color:var(--sub)">${esc(p.pos)}</small>${p.tier!=="other"?`<span class="tier ${p.tier}">${TIER_SHORT[p.tier]}</span>`:""}${p.status?`<span class="st chip ${chipClass(p.status)}">${p.status}${p.detail?"・"+esc(p.detail):""}${p.ret?"<br>"+esc(p.ret):""}</span>`:""}</div>`).join("");
+  const rows=(g.rosters[t.abbr]||[]).map(p=>`<div class="pl">${p.jersey!==""?jn(t.abbr,p.jersey):'<span class="jn" style="background:var(--panel2)"></span>'}${esc(p.name)} <small style="color:var(--sub)">${esc(p.pos)}</small>${p.tier!=="other"?`<span class="tier ${p.tier}">${TIER_SHORT[p.tier]}</span>`:""}${p.status?`<span class="st chip ${chipClass(p.status)}">${p.status}${p.detail?"・"+esc(p.detail):""}${p.ret?"<br>"+esc(p.ret):""}</span>`:""}</div>`).join("");
   return `<div class="roster"><div class="ttl">${esc(t.short)} <small>${t.homeAway==="home"?"ホーム":"アウェイ"}</small></div>${rows}</div>`;
 }
 function boxTable(rows){
@@ -390,7 +410,7 @@ function gameCard(g){
   return `<div class="card${tc?" home":""}" id="g_${g.id}"${tc?` style="--tc:${tc}"`:""}>
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span><span class="hm">${esc(h.abbr)}</span><span class="hmtag">HOME</span></div>
-      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${!g.completed&&g.preview?`<div class="pv">見どころ:${esc(g.preview)}</div>`:""}${g.state==="pre"&&g.start_utc?`<div><button class="cal" data-act="cal" data-id="${g.id}">📅 カレンダーに入れる</button></div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
+      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${!g.completed?previewHTML(g):""}${g.state==="pre"&&g.start_utc?`<div><button class="cal" data-act="cal" data-id="${g.id}">📅 カレンダーに入れる</button></div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
     ${quick(g)}${rev}
     <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
@@ -471,7 +491,7 @@ function standingsToUse(){
 }
 function aceTeam(t,ps,rank,wl,fav){
   const tc=(DATA.team_colors||{})[t];
-  return `<div class="team"${tc?` style="border-left:3px solid ${tc}"`:""}><div class="n"><span class="rk">${rank}</span>${t}${wl?` <small>${wl[0]}勝${wl[1]}敗</small>`:""}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p"><span class="role">${i===0?"エース":i===1?"セカンド":"核"}</span>${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px;white-space:nowrap">${TIER_SHORT[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`;
+  return `<div class="team"${tc?` style="border-left:3px solid ${tc}"`:""}><div class="n"><span class="rk">${rank}</span>${t}${wl?` <small>${wl[0]}勝${wl[1]}敗</small>`:""}${fav.has(t)?' <span class="fav-on">★推し</span>':""}</div>${ps.map((p,i)=>`<div class="p"><span class="role">${i===0?"エース":i===1?"セカンド":"核"}</span>${jn(t,jerseyOf(t,p.name))}${esc(p.name)} <span class="tier ${p.tier}" style="font-size:10px;padding:0 4px;border-radius:4px;white-space:nowrap">${TIER_SHORT[p.tier]}</span>${p.aura?' <span style="font-size:10px;padding:0 4px;border-radius:4px;background:#c792ea;color:#000">華</span>':""}</div>`).join("")}</div>`;
 }
 function renderAces(){
   const fav=new Set(FAV?[FAV]:[]), S=standingsToUse(), east=new Set((DATA.standings||{}).east||[]);
