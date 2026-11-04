@@ -1159,9 +1159,15 @@ def add_trivia(games_days, records, roster_cache):
             outs = {ab: {norm(p["name"]) for p in g["rosters"].get(ab, []) if p.get("status") in ("欠場", "出場停止")} for ab in ab_ids}
             before = [r for r in recs if r["date"] < gd]
             # 人が入れた小話(セレモニーなど)
-            for ev in events:
-                if ev.get("date") == gd and set(ev.get("teams", [])) & set(ab_ids):
-                    items.append({"kind": "イベント", "text": ev["text"], "big": bool(ev.get("big", True)), "rank": 0})
+            us_full = (dt.date.fromisoformat(gd) - dt.timedelta(days=1)).isoformat()
+            ev_players = set()
+            for ev in events:   # date=日本の日付、us=アメリカの日付(どちらか)。teamsは両チームとも含まれていること
+                hit_date = ev.get("date") == gd or ev.get("us") == us_full
+                if hit_date and set(ev.get("teams", [])) <= set(ab_ids) and ev.get("teams"):
+                    items.append({"kind": ev.get("kind", "イベント"), "text": ev["text"], "big": bool(ev.get("big", True)),
+                                  "rank": 0, "heat": bool(ev.get("heat", True))})
+                    if ev.get("player"):
+                        ev_players.add(norm(ev["player"]))
             # HCの因縁(全部)
             for t in valid_ties(ab_ids, roster_cache, list(ab_ids)):
                 items.append({"kind": t["label"], "text": t["text"], "big": t["rank"] <= 2, "rank": 10 + t["rank"]})
@@ -1173,9 +1179,9 @@ def add_trivia(games_days, records, roster_cache):
                 nm = away_names.get(norm(rc["player"]))
                 if rc["arena"] == home and nm and norm(nm) not in outs.get(away, set()):
                     if rc["type"] == "boo":
-                        items.append({"kind": "ブーイング", "text": f"{short_name(nm)}はこの会場では毎回ブーイング({rc['why']})", "big": True, "rank": 1})
+                        items.append({"kind": "ブーイング", "text": f"{short_name(nm)}はこの会場では毎回ブーイング({rc['why']})", "big": True, "rank": 1, "heat": True})
                     else:
-                        items.append({"kind": "大歓迎", "text": f"{short_name(nm)}がここに帰ってくると毎回スタンディングオベーション({rc['why']})", "big": True, "rank": 1})
+                        items.append({"kind": "大歓迎", "text": f"{short_name(nm)}がここに帰ってくると毎回スタンディングオベーション({rc['why']})", "big": True, "rank": 1, "heat": True})
             for ab, tid in ab_ids.items():
                 opp = next(x for x in ab_ids if x != ab)
                 hist_games = [r for r in before if ab in (r["home"], r["away"]) and ab in (r.get("lineup") or {})]
@@ -1233,10 +1239,16 @@ def add_trivia(games_days, records, roster_cache):
                             homecoming = bool(last_other) and last_other[-1][0] == opp and \
                                 not any(opp in (r["home"], r["away"]) for r in hist_games)
                             jn = team_ja.get(opp, opp)
-                            if homecoming:   # 「元◯◯」だけの小話はみんな知ってるので出さない。移籍後はじめての古巣戦だけ
-                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦", "big": True, "rank": 1})
+                            if homecoming and norm(nm) not in ev_players:   # 「元◯◯」だけの小話はみんな知ってるので出さない。移籍後はじめての古巣戦だけ
+                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦", "big": True, "rank": 1, "heat": True})
             items.sort(key=lambda x: x["rank"])
-            g["trivia"] = [{k: v for k, v in x.items() if k != "rank"} for x in items]
+            # 会場が熱くなる小話(ブーイング・大歓迎・古巣への凱旋・セレモニー)がある試合は、期待度を★1つ上げる。
+            # 試合後のランク(点数)には入れない(盛り上がるのは試合前の空気で、試合の中身とは別なので)
+            heat = next((x for x in items if x.get("heat")), None)
+            if heat and not g.get("completed") and g.get("expect"):
+                g["expect"] = min(3, g["expect"] + 1)
+            g["heat"] = heat["text"] if heat else None
+            g["trivia"] = [{k: v for k, v in x.items() if k not in ("rank", "heat")} for x in items]
             big = next((x for x in items if x["big"]), None)
             if g.get("preview") is not None and isinstance(g["preview"], dict):
                 g["preview"]["tie"] = {"label": big["kind"], "text": big["text"]} if big else None
@@ -1445,7 +1457,22 @@ def season_dates(any_us_date):
 
 
 # ---------- 通知文 ----------
-def notify_text(now, games_today, arch, favs=None):
+def tomorrow_lines(games):
+    """21時の通知の「明日の見どころ」。まだ始まっていない試合なので、期待度と小話だけ(結果は出ようがない)"""
+    pick = [g for g in games if g.get("expect", 0) >= 3 or g.get("heat")]
+    pick.sort(key=lambda g: (-(g.get("expect") or 0), not g.get("heat"), g.get("start", "")))
+    out = []
+    for g in pick[:4]:
+        home = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "home")
+        away = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "away")
+        big = next((x for x in g.get("trivia", []) if x.get("big")), None)
+        t = (g.get("heat") or (big or {}).get("text") or "")
+        note = f"\n  └ {t[:60]}{'…' if len(t) > 60 else ''}" if t else ""
+        out.append(f"{g.get('start','')} {away} @ {home} {'★' * (g.get('expect') or 1)}{' 🔥' if g.get('heat') else ''}{note}")
+    return out
+
+
+def notify_text(now, games_today, arch, favs=None, tomorrow=None):
     favs = CFG["favorites"] if favs is None else favs
     slots = CFG["notify_slots_jst"]
     cur = now.hour * 60 + now.minute
@@ -1472,6 +1499,12 @@ def notify_text(now, games_today, arch, favs=None):
     if any(g["teams"][0]["abbr"] in favs or g["teams"][1]["abbr"] in favs for g in games_today):
         lines.append("推しチームの試合:対象外")
     lines.append(f"終了 {len(done)}/{len(games_today)}試合")
+    if tomorrow and slot == slots[-1]:   # 夜の通知だけ、明日の見どころを足す
+        tl = tomorrow_lines(tomorrow)
+        if tl:
+            lines.append("")
+            lines.append("【明日の見どころ】")
+            lines += tl
     return "\n".join(lines)
 
 
@@ -1921,7 +1954,7 @@ def main():
     write_ics(days + future, out_dir)
 
     # 通知:持ち主用(config の favorites)
-    open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch))
+    open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch, tomorrow=future[0]["games"] if future else None))
     # Bluesky の毎日の速報(持ち主の推しは24時間隠したまま)。投稿は bsky_daily.py
     json.dump(bsky_daily(today, days[0]["games"], arch), open(os.path.join(HERE, "bsky_daily.json"), "w"), ensure_ascii=False)
     # 通知:みんな用。推しチームごとのチャンネル(推しなし + 30チーム)
@@ -1932,7 +1965,8 @@ def main():
     assign_tiers_many(jobs, prev_records, today)   # 31チャンネル分を1回で計算
     for fav, recs in zip(fav_list, jobs):
         favs = [fav] if fav else []
-        channels[(fav or "none").lower()] = notify_text(now, days[0]["games"], {r["id"]: r for r in recs}, favs)
+        channels[(fav or "none").lower()] = notify_text(now, days[0]["games"], {r["id"]: r for r in recs}, favs,
+                                                         tomorrow=future[0]["games"] if future else None)
     json.dump(channels, open(os.path.join(HERE, "notify_channels.json"), "w"), ensure_ascii=False)
     print(f"OK: {sum(len(d['games']) for d in days)} recent games, archive {len(records)} games")
     print("buzz signals collected (counts only): " + ", ".join(f"{k}={v}" for k, v in STATS.items()))

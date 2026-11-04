@@ -1,15 +1,113 @@
 {
   "_note": "その会場での迎えられ方。boo=毎回ブーイング、ovation=帰ってくるとスタンディングオベーション。arena=その会場のチーム。選手が今その会場のチームにいない(アウェイで乗り込む)試合だけ出す。よく知られているものだけ。Claudeが案を出し、ユーザーが決める",
   "items": [
-    {"player": "James Harden", "arena": "PHI", "type": "boo", "why": "2023年に半ば強引にトレードを求めて出ていった"},
-    {"player": "James Harden", "arena": "HOU", "type": "ovation", "why": "ロケッツの黄金期を背負った、今も愛されるレジェンド"},
-    {"player": "James Harden", "arena": "BKN", "type": "boo", "why": "1年ちょっとでトレードを求めてネッツを去った"},
-    {"player": "Kevin Durant", "arena": "OKC", "type": "boo", "why": "2016年にウォリアーズへ移籍して以来、今も敵扱い"},
-    {"player": "Kyrie Irving", "arena": "BOS", "type": "boo", "why": "セルティックスを去り、ロゴを踏みつけたこともある"},
-    {"player": "Luka Doncic", "arena": "DAL", "type": "ovation", "why": "突然のトレードで去った、マブスファンの永遠の英雄"},
-    {"player": "Anthony Davis", "arena": "NO", "type": "boo", "why": "2019年にトレードを要求してペリカンズを去った"},
-    {"player": "Paul George", "arena": "IND", "type": "boo", "why": "トレードを求めてペイサーズを去った"},
-    {"player": "Paul George", "arena": "LAC", "type": "boo", "why": "クリッパーズを出てシクサーズへ移った"},
-    {"player": "Kawhi Leonard", "arena": "SA", "type": "boo", "why": "2018年にトレードを求めてスパーズを去った"}
+    {
+      "player": "James Harden",
+      "arena": "PHI",
+      "type": "boo",
+      "why": "2023年に半ば強引にトレードを求めて出ていった"
+    },
+    {
+      "player": "James Harden",
+      "arena": "HOU",
+      "type": "ovation",
+      "why": "ロケッツの黄金期を背負った、今も愛されるレジェンド"
+    },
+    {
+      "player": "James Harden",
+      "arena": "BKN",
+      "type": "boo",
+      "why": "1年ちょっとでトレードを求めてネッツを去った"
+    },
+    {
+      "player": "Kevin Durant",
+      "arena": "OKC",
+      "type": "boo",
+      "why": "2016年にウォリアーズへ移籍して以来、今も敵扱い"
+    },
+    {
+      "player": "Kyrie Irving",
+      "arena": "BOS",
+      "type": "boo",
+      "why": "セルティックスを去り、ロゴを踏みつけたこともある"
+    },
+    {
+      "player": "Luka Doncic",
+      "arena": "DAL",
+      "type": "ovation",
+      "why": "突然のトレードで去った、マブスファンの永遠の英雄"
+    },
+    {
+      "player": "Anthony Davis",
+      "arena": "NO",
+      "type": "boo",
+      "why": "2019年にトレードを要求してペリカンズを去った"
+    },
+    {
+      "player": "Paul George",
+      "arena": "IND",
+      "type": "boo",
+      "why": "トレードを求めてペイサーズを去った"
+    },
+    {
+      "player": "Paul George",
+      "arena": "LAC",
+      "type": "boo",
+      "why": "クリッパーズを出てシクサーズへ移った"
+    },
+    {
+      "player": "Kawhi Leonard",
+      "arena": "SA",
+      "type": "boo",
+      "why": "2018年にトレードを求めてスパーズを去った"
+    },
+    {
+      "player": "Russell Westbrook",
+      "arena": "OKC",
+      "type": "ovation",
+      "why": "Thunderで11年戦ったMVP。帰ってくるたびに大歓声"
+    },
+    {
+      "player": "Kawhi Leonard",
+      "arena": "TOR",
+      "type": "ovation",
+      "why": "2019年にRaptorsを初優勝に導いた"
+    },
+    {
+      "player": "DeMar DeRozan",
+      "arena": "TOR",
+      "type": "ovation",
+      "why": "Raptorsの顔だった9年間。今も一番愛される選手の一人"
+    },
+    {
+      "player": "Pascal Siakam",
+      "arena": "TOR",
+      "type": "ovation",
+      "why": "2019年の優勝メンバー。最初の凱旋ではトリビュート映像つきで大歓迎"
+    },
+    {
+      "player": "Klay Thompson",
+      "arena": "GS",
+      "type": "ovation",
+      "why": "Warriors王朝のスプラッシュ・ブラザーズの片割れ"
+    },
+    {
+      "player": "LeBron James",
+      "arena": "CLE",
+      "type": "ovation",
+      "why": "2016年にクリーブランドへ悲願の優勝をもたらした地元の英雄"
+    },
+    {
+      "player": "Karl-Anthony Towns",
+      "arena": "MIN",
+      "type": "ovation",
+      "why": "Timberwolvesで9年、チームの顔だった"
+    },
+    {
+      "player": "Jalen Brunson",
+      "arena": "DAL",
+      "type": "boo",
+      "why": "2022年にMavsを出てKnicksへ。それ以来ダラスでは毎回ブーイング"
+    }
   ]
 }

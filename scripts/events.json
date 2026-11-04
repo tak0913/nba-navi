@@ -1,4 +1,18 @@
 {
-  "_note": "人が入れる小話(永久欠番セレモニー・記念日・レジェンドの来場・引退ツアーの最後の訪問など)。date=日本の日付、teams=関わるチーム、big=見どころにも出すか。Claudeが調べて案を出し、ユーザーが決める",
-  "items": []
+  "_note": "人が入れる小話(セレモニー・凱旋・特別な試合)。us=アメリカの日付(またはdate=日本の日付)。teams=その試合の両チーム。player=その選手の「古巣対決」の自動小話と重ねないため。heat=会場が熱くなる→期待度★+1(既定true)。調べて入れたのは2026-11-04",
+  "items": [
+    {"us": "2026-11-07", "teams": ["DEN", "IND"], "kind": "イベント", "text": "メキシコシティでの公式戦(NBA Mexico City Game)。現地は毎年ほぼ満員でお祭り騒ぎ", "big": true},
+    {"us": "2026-12-25", "teams": ["SA", "NY"], "kind": "クリスマス", "text": "クリスマスゲームの1試合目。2026年ファイナルの再戦(Knicksが優勝した相手)", "big": true},
+    {"us": "2026-12-25", "teams": ["MIA", "BOS"], "kind": "クリスマス", "text": "クリスマスゲーム。Giannis Antetokounmpo入りのHeatと、Paul George・Jayson TatumのCelticsの因縁対決", "big": true},
+    {"us": "2026-12-25", "teams": ["PHI", "LAL"], "kind": "クリスマス", "text": "クリスマスに、Sixersに移ったLeBron JamesがLAへ初凱旋。LeBronは歴代最多21回目のクリスマスゲーム", "big": true, "player": "LeBron James"},
+    {"us": "2026-12-25", "teams": ["OKC", "MIN"], "kind": "クリスマス", "text": "クリスマスゲーム。Timberwolvesにとって初のクリスマスのホーム戦", "big": true},
+    {"us": "2026-12-25", "teams": ["DEN", "GS"], "kind": "クリスマス", "text": "クリスマスゲームの最終試合。Nikola Jokic vs Stephen Curry(Curryは13回目のクリスマス)", "big": true},
+    {"us": "2027-01-10", "teams": ["PHI", "TOR"], "kind": "セレモニー", "text": "試合後にKyle Lowryの背番号7の永久欠番セレモニー(Raptorsで2人目)", "big": true},
+    {"us": "2027-01-21", "teams": ["PHI", "BOS"], "kind": "凱旋", "text": "トレードでSixersに移ったJaylen Brownが、はじめてボストンに帰ってくる", "big": true, "player": "Jaylen Brown"},
+    {"us": "2027-01-28", "teams": ["MIA", "MIL"], "kind": "凱旋", "text": "Heatに移ったGiannis Antetokounmpoが、はじめてミルウォーキーに帰ってくる(Bucksを優勝させた英雄)", "big": true, "player": "Giannis Antetokounmpo"},
+    {"us": "2027-02-06", "teams": ["POR", "MEM"], "kind": "凱旋", "text": "Trail Blazersに移ったJa Morantが、はじめてメンフィスに帰ってくる", "big": true, "player": "Ja Morant"},
+    {"us": "2027-02-15", "teams": ["MIN", "CHA"], "kind": "凱旋", "text": "Timberwolvesに移ったLaMelo Ballが、はじめてシャーロットに帰ってくる", "big": true, "player": "LaMelo Ball"},
+    {"us": "2027-02-27", "teams": ["WSH", "UTAH"], "kind": "新人対決", "text": "2026年ドラフト1位AJ Dybantsa vs 2位Darryn Peterson、プロではじめての直接対決", "big": true, "heat": false},
+    {"us": "2027-02-28", "teams": ["BOS", "MIN"], "kind": "セレモニー", "text": "試合後にKevin Garnettの背番号21の永久欠番セレモニー。相手は彼が優勝したCeltics", "big": true}
+  ]
 }
