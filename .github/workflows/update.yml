@@ -133,7 +133,13 @@ jobs:
           git add scripts/bsky_state.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
-          git pull --rebase && git push
+          # 別の回と同時に記録を書いてぶつかったときは、この回の記録を優先して入れ直す(何回か試す)
+          for i in 1 2 3 4; do
+            git pull --rebase -X theirs && git push && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep $((i * 10))
+          done
+          exit 1
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
