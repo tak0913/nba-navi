@@ -117,14 +117,6 @@ th{color:var(--sub);font-weight:500}
 .whybtn.on{border-color:var(--brand);color:var(--brand)}
 .whyin{font-size:12.5px;color:var(--text);margin-top:3px;font-weight:600}
 .whyin:empty{display:none}
-/* 横画面のスマホでは、縦にしてねの画面を出す(iPhoneはウェブから画面の向きを固定できないため) */
-.rotate{display:none}
-@media (orientation:landscape) and (max-height:500px){
-  .rotate{display:flex;position:fixed;inset:0;z-index:100;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text);font-size:16px;font-weight:700}
-  .rotate .ic{font-size:42px;animation:rot 1.6s ease-in-out infinite}
-  @keyframes rot{0%,30%{transform:rotate(90deg)}70%,100%{transform:rotate(0)}}
-  body{overflow:hidden}
-}
 .sec{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin:4px 2px 8px}
 .list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .list .item .badge{width:40px;height:40px;font-size:16px}
@@ -186,12 +178,11 @@ th{color:var(--sub);font-weight:500}
   </nav>
 </header>
 <main id="main"><div class="empty">読み込み中…</div></main>
-<div class="rotate"><div class="ic">📱</div>スマホを縦にして見てね</div>
 <div class="ob" id="ob" style="display:none"><div class="box" id="obbox"></div></div>
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -452,9 +443,9 @@ function renderHelp(){
   ${sec("1. 毎日の使い方",`<ol style="padding-left:18px;margin:0">
     <li>通知(9・12・15・18・21時ごろ)か「試合」タブで、<b>ランクが付いた試合</b>を確認</li>
     <li>SS・S・Aなら、ハイライトじゃなく<b>本編を見る</b>のがおすすめ</li>
-    <li>見終わったら、カードの一番下「結果とスタッツを見る」で答え合わせ</li>
-    <li>ランクが自分の感覚とズレてたら、Claudeに伝えて基準を直す(これが一番大事)</li></ol>`)}
-  ${sec("2. 各タブの見方",`<b>試合</b>:今日・昨日・おとといの試合。始まる前は期待度★1〜3、終わったらランク。カードの上に欠場・出場微妙の選手と理由・復帰見込み。タップでロスターとチームの強み。<br>
+    <li>見終わったら、カードの「結果とスタッツを見る」で答え合わせ。点数の内訳と、そのランクになった理由も見られる</li>
+    <li>ランクが自分の感覚とズレてたら、「投稿」タブから教えてね(基準を直す一番の材料になる)</li></ol>`)}
+  ${sec("2. 各タブの見方",`<b>試合</b>:今日・昨日・おとといの試合。始まる前は期待度★1〜3、終わったらランク。カードに欠場・出場微妙の選手と理由・復帰見込み。枠の色はホームチームのチームカラー。「ロスター・チームの強みを見る」でロスター。その日の試合が全部終わったらランク順に並び、ランクを隠している推しの試合は一番上。<br>
     <b>ティア表</b>:直近3日・週・月・シーズンごとのランキング。「ランク外も表示」で全試合。<br>
     <b>殿堂</b>:SS候補と、30日後も語られて殿堂入りした試合。シーズンをまたいでずっと残る。<br>
     <b>エース表</b>:採点に使ってる各チームのエースと格。<br>
@@ -568,7 +559,7 @@ function obSteps(){
     ["ようこそ!🏀",`<p>NBAの試合を<b>ネタバレなしで</b>「見るべきかどうか」教えてくれるアプリだよ。</p>
       <ul><li>勝敗やスコアは、<b>自分でボタンを押すまで出ない</b></li><li>代わりに、試合がどれだけ面白かったかを<b>ランク(SS〜C)</b>で教える</li><li>データは1時間ごとに自動で更新</li></ul>`],
     ["ランクの意味",`${tiers}<p style="color:var(--sub);font-size:13px">ランクは比べる範囲で決まるよ(SS=歴代、S=シーズン、A=月、B=週の中での上位)。試合後のニュースや動画の盛り上がり(余韻)でも少しずつ動く。</p>`],
-    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る</li><li>カードの上に<b>欠場・出場微妙の選手</b>と、理由・復帰見込み</li><li>タップするとロスターとチームの強み</li><li>一番下の<b>「結果とスタッツを見る」</b>は、もう一度確認してから表示(うっかり防止)</li></ul>`],
+    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る</li><li>カードに<b>欠場・出場微妙の選手</b>と、理由・復帰見込み。枠の色は<b>ホームチームのチームカラー</b></li><li><b>「結果とスタッツを見る」</b>は、もう一度確認してから表示(うっかり防止)。点数の内訳も見られる</li><li>「ロスター・チームの強みを見る」でロスター</li></ul>`],
     ["ティア表・殿堂・エース表",`<ul><li><b>ティア表</b>:直近3日・週・月・シーズンでランク順に並ぶ。レギュラーシーズン/プレーオフ切り替え、「ランク外も表示」で全試合</li><li><b>殿堂</b>:何年経っても語られる伝説の試合だけが残る場所</li><li><b>エース表</b>:各チームのエースと格(採点に使ってる)</li></ul>`],
     ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付け・ティア表・通知から外して、ネタバレしないようにするよ。</p>
       <p style="font-size:13px">なので<b>推しの試合だけランクが出なくても故障じゃない</b>よ。カードには「🔒推し」と出て、24時間たつか、見終わってカードの「見終わった」ボタンを押すと普通にランクが付く。</p>
