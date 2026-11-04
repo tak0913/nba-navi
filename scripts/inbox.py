@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(HERE, "config.json")))
 PATH = os.path.join(HERE, "suggestions.json")
 RATINGS = os.path.join(HERE, "ratings.json")   # 見た人の「面白かった?」{試合id: {端末の印: good/ok/bad}}
-KINDS = {"rivalry", "rank", "other"}
+KINDS = {"rivalry", "rank", "trivia", "other"}
 RATE = {"good", "ok", "bad"}
 HEAT = {"hot", "tradition"}
 
@@ -46,6 +46,10 @@ def parse(msg, teams):
             return None
         it["pair"] = "-".join(sorted((a, b)))
         it["heat"] = d.get("heat") if d.get("heat") in HEAT else "hot"
+    elif d["kind"] == "trivia":
+        it["game"] = clean(d.get("game"), 40)
+        if not it["text"]:
+            return None
     elif d["kind"] == "rank":
         it["game"] = clean(d.get("game"), 40)
         if not it["text"]:
@@ -106,7 +110,7 @@ def main():
     print(f"inbox: {len(new)} new, {rated} ratings")
     owner = os.environ.get("NTFY_TOPIC")
     if new and owner:
-        kinds = {"rivalry": "因縁", "rank": "ランクのズレ", "other": "その他"}
+        kinds = {"rivalry": "因縁", "rank": "ランクのズレ", "trivia": "小話", "other": "その他"}
         body = "みんなからの投稿が届いたよ\n" + "\n".join(
             f"{kinds[k]}:{sum(1 for i in new if i['kind'] == k)}件" for k in kinds if any(i["kind"] == k for i in new))
         try:

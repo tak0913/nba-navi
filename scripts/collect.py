@@ -878,15 +878,16 @@ def career_before(pid, season):
     key = f"{pid}_{season}"
     if key in CAREER:
         return CAREER[key]
-    path = _cache_path("career", key)
+    path = _cache_path("career", "v2_" + key)   # v2 = 通算得点と所属チームの歴史も持つ版
     if os.path.exists(path):
         CAREER[key] = _cache_load(path)
         return CAREER[key]
     url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}/gamelog"
     first = get(url)
     opts = next((f["options"] for f in first.get("filters", []) if f.get("name") == "season"), [])
-    hi, gp = 0, 0
-    for o in opts:
+    hi, gp, tot = 0, 0, 0
+    stints = []   # 所属チームの歴史 [略称, 最後の試合日, 試合数](古い順)
+    for o in sorted(opts, key=lambda o: str(o.get("value"))):
         try:
             y = int(o["value"])
         except Exception:
@@ -901,17 +902,28 @@ def career_before(pid, season):
             for cat in stype.get("categories", []):
                 for ev in cat.get("events", []):
                     try:
-                        hi = max(hi, int(float(ev["stats"][i]))); gp += 1
+                        p = int(float(ev["stats"][i]))
+                        hi = max(hi, p); gp += 1; tot += p
                     except Exception:
                         pass
-    CAREER[key] = {"hi": hi, "gp": gp}
+        evs = sorted(((e.get("gameDate", ""), (e.get("team") or {}).get("abbreviation")) for e in d.get("events", {}).values()))
+        for day, ab in evs:
+            if not ab:
+                continue
+            if stints and stints[-1][0] == ab:
+                stints[-1][1] = day[:10]; stints[-1][2] += 1
+            else:
+                stints.append([ab, day[:10], 1])
+    CAREER[key] = {"hi": hi, "gp": gp, "pts": tot, "teams": stints}
     _cache_save(path, CAREER[key])
     return CAREER[key]
 
 
-def load_careers(records, limit):
-    """キャリアハイの判定に必要な選手(25点以上取った試合がある選手)の過去の成績を集める。1回の更新で limit 人まで"""
-    want = []
+def load_careers(records, limit, first=()):
+    """キャリアハイ・記録目前・古巣対決に必要な選手の過去の成績を集める。1回の更新で limit 人まで。
+    first = 先に集める選手(エース表の選手・日本人選手)。ほかは25点以上取った試合がある選手"""
+    season = max((r.get("season") or 0) for r in records) if records else 0
+    want = [(pid, season) for pid in first]
     for r in records:
         for lu in (r.get("lineup") or {}).values():
             for pid, (nm, pts) in (lu.get("pts") or {}).items():
@@ -919,10 +931,10 @@ def load_careers(records, limit):
                     want.append((pid, r.get("season")))
     done = 0
     for pid, season in dict.fromkeys(want):
-        if done >= limit and not os.path.exists(_cache_path("career", f"{pid}_{season}")):
+        if done >= limit and not os.path.exists(_cache_path("career", f"v2_{pid}_{season}")):
             continue
         try:
-            fresh = not os.path.exists(_cache_path("career", f"{pid}_{season}"))
+            fresh = not os.path.exists(_cache_path("career", f"v2_{pid}_{season}"))
             career_before(pid, season)
             done += 1 if fresh else 0
         except Exception:
@@ -1081,6 +1093,14 @@ def valid_ties(ids, roster_cache, pair=None):
     return sorted(out, key=lambda t: t["rank"])
 
 
+def coaches_by_abbr():
+    try:
+        ids = {t["team"]["abbreviation"]: t["team"]["id"] for t in get(f"{API}/teams")["sports"][0]["leagues"][0]["teams"]}
+    except Exception:
+        return {}
+    return {ab: COACH_BY_TEAMID.get(str(tid), "") for ab, tid in ids.items()}
+
+
 def coach_ties_all(roster_cache):
     """使い方ページの一覧用(今も成り立っているものだけ)"""
     try:
@@ -1111,6 +1131,106 @@ def star_jerseys(tinfo, roster_cache):
         by = {norm(a["displayName"]): a.get("jersey", "") for a in roster_cache[tid]}
         out[ab] = {p["name"]: by.get(norm(p["name"]), "") for p in lst}
     return out
+
+
+JP_NAMES = {"Rui Hachimura": "八村塁", "Yuki Kawamura": "河村勇輝", "Keisei Tominaga": "富永啓生", "Yuta Watanabe": "渡邊雄太"}
+EVENTS = os.path.join(HERE, "events.json")   # 人が入れる小話(永久欠番セレモニーなど){"items": [{date, teams, text, big}]}
+
+
+def _milestone(total):
+    step = 5000 if total >= 10000 else 1000
+    return (total // step + 1) * step
+
+
+def add_trivia(games_days, records, roster_cache):
+    """試合ごとの小話(ちなみに)。試合前にわかることだけ(終わった試合も、その試合より前の情報で作る)。
+    big=True は見どころの一言にも出す大きい小話"""
+    team_ja = load_json(os.path.join(HERE, "names_ja.json"), {}).get("teams", {})
+    events = load_json(EVENTS, {}).get("items", [])
+    star_set = {norm(p["name"]) for ab, lst in STARS.items() if not ab.startswith("_") for p in lst}
+    recs = sorted(records, key=lambda r: r["date"])
+    season_now = max((r.get("season") or 0) for r in recs) if recs else 0
+    for day in games_days:
+        for g in day["games"]:
+            items = []
+            gd = g["date"]
+            us = (dt.date.fromisoformat(gd) - dt.timedelta(days=1)).strftime("%m-%d")
+            ab_ids = {t["abbr"]: t["id"] for t in g["teams"]}
+            outs = {ab: {norm(p["name"]) for p in g["rosters"].get(ab, []) if p.get("status") in ("欠場", "出場停止")} for ab in ab_ids}
+            before = [r for r in recs if r["date"] < gd]
+            # 人が入れた小話(セレモニーなど)
+            for ev in events:
+                if ev.get("date") == gd and set(ev.get("teams", [])) & set(ab_ids):
+                    items.append({"kind": "イベント", "text": ev["text"], "big": bool(ev.get("big", True)), "rank": 0})
+            # HCの因縁(全部)
+            for t in valid_ties(ab_ids, roster_cache, list(ab_ids)):
+                items.append({"kind": t["label"], "text": t["text"], "big": t["rank"] <= 2, "rank": 10 + t["rank"]})
+            for ab, tid in ab_ids.items():
+                opp = next(x for x in ab_ids if x != ab)
+                hist_games = [r for r in before if ab in (r["home"], r["away"]) and ab in (r.get("lineup") or {})]
+                for a in roster_cache.get(tid, []):
+                    nm, pid = a.get("displayName", ""), a.get("id")
+                    out = norm(nm) in outs.get(ab, set())
+                    is_star = norm(nm) in star_set
+                    jp = (a.get("birthPlace") or {}).get("country") == "Japan"
+                    if jp and not out:
+                        items.append({"kind": "日本人選手", "text": f"{JP_NAMES.get(nm, nm)}({ab})" + ("のチームの試合" if g.get("completed") else "が出場予定"),
+                                      "big": True, "rank": 5})
+                    dob = (a.get("dateOfBirth") or "")[:10]
+                    if dob[5:] == us and not out and (is_star or jp):
+                        age = int(gd[:4]) - int(dob[:4]) - (1 if gd[5:] < dob[5:] else 0)
+                        items.append({"kind": "誕生日", "text": f"{short_name(nm)}の{age}歳の誕生日", "big": False, "rank": 40})
+                    if not (is_star or jp) or out:
+                        continue
+                    c = CAREER.get(f"{pid}_{season_now}")
+                    season_pts = [lu["pts"][pid][1] for r in before for lu in (r.get("lineup") or {}).values()
+                                  if pid in (lu.get("pts") or {})]
+                    # 長期離脱からの復帰(チームの直近8試合以上に出ていない主力が、出場予定に戻ってきた)
+                    miss = 0
+                    for r in reversed(hist_games):
+                        if pid in r["lineup"][ab].get("pl", []):
+                            break
+                        miss += 1
+                    if miss >= 8 and len(hist_games) > miss:
+                        items.append({"kind": "復帰", "text": f"{short_name(nm)}が{miss}試合ぶりの復帰見込み", "big": True, "rank": 2})
+                    if c:
+                        # 記録目前(通算得点のキリのいい数字まであと少し)
+                        tot = c.get("pts", 0) + sum(season_pts)
+                        if tot >= 5000 and "pts" in c:
+                            goal = _milestone(tot)
+                            left = goal - tot
+                            avg = (sum(season_pts) / len(season_pts)) if season_pts else (c["pts"] / max(1, c["gp"]))
+                            if avg > 0 and left <= 1.3 * avg:
+                                items.append({"kind": "記録目前", "text": f"{short_name(nm)}、通算{goal:,}点まであと{left}点。今日届くかも",
+                                              "big": True, "rank": 3})
+                            elif avg > 0 and left <= 4 * avg and tot >= 10000:
+                                items.append({"kind": "記録目前", "text": f"{short_name(nm)}、通算{goal:,}点まであと{left}点",
+                                              "big": False, "rank": 30})
+                        # 古巣対決(過去に相手チームに在籍していた)
+                        stints = list(c.get("teams", []))
+                        for r in before:   # 今季の途中移籍も足す
+                            for tab, lu in (r.get("lineup") or {}).items():
+                                if pid in (lu.get("pts") or {}):
+                                    if stints and stints[-1][0] == tab:
+                                        stints[-1] = [tab, r["date"], stints[-1][2] + 1]
+                                    else:
+                                        stints.append([tab, r["date"], 1])
+                        past = [x for x in stints if x[0] == opp]
+                        if past and (not stints or stints[-1][0] != opp):
+                            games = sum(x[2] for x in past)
+                            last_other = [x for x in stints if x[0] != ab]
+                            homecoming = bool(last_other) and last_other[-1][0] == opp and \
+                                not any(opp in (r["home"], r["away"]) for r in hist_games)
+                            jn = team_ja.get(opp, opp)
+                            if homecoming:
+                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦", "big": True, "rank": 1})
+                            else:
+                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}は元{jn}({games}試合在籍)", "big": False, "rank": 35})
+            items.sort(key=lambda x: x["rank"])
+            g["trivia"] = [{k: v for k, v in x.items() if k != "rank"} for x in items]
+            big = next((x for x in items if x["big"]), None)
+            if g.get("preview") is not None and isinstance(g["preview"], dict):
+                g["preview"]["tie"] = {"label": big["kind"], "text": big["text"]} if big else None
 
 
 def preview_line(teams, out_pre, pdet, clash, roster_cache=None):
@@ -1707,12 +1827,17 @@ def main():
             res = []
         future.append({"date": d.isoformat(), "games": [g for g, _ in res]})
 
+    # 小話用に、エース表の選手と日本人選手の過去の成績を先に集める
+    star_set = {norm(p["name"]) for ab, lst in STARS.items() if not ab.startswith("_") for p in lst}
+    first = [a["id"] for ath in roster_cache.values() for a in ath
+             if norm(a.get("displayName", "")) in star_set or (a.get("birthPlace") or {}).get("country") == "Japan"]
     if "--no-buzz" not in sys.argv:
-        load_careers(list(archive.values()), CFG.get("career_fetch_per_run", 40))
+        load_careers(list(archive.values()), CFG.get("career_fetch_per_run", 25), first)
     else:
-        load_careers(list(archive.values()), 0)   # 保存してある分だけ使う
+        load_careers(list(archive.values()), 0, first)   # 保存してある分だけ使う
     apply_surprise(list(archive.values()))
     apply_absence(list(archive.values()))
+    add_trivia(days + future, list(archive.values()), roster_cache)
     prev_records = load_json(PREV_SCORES, None) or load_json(ARCHIVE_PREV, [])
     # 余韻の測定(お気に入りは対象外)
     allrec = list(archive.values())
@@ -1756,6 +1881,7 @@ def main():
             "stars": {k: v for k, v in STARS.items() if not k.startswith("_")},
             "jerseys": star_jerseys(tinfo, roster_cache),
             "coach_ties": coach_ties_all(roster_cache),
+            "coaches": coaches_by_abbr(),
             "days": days, "future": future, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
             "suggest_topic": CFG.get("suggest_topic"), "rivalries": load_json(os.path.join(HERE, "rivalries.json"), {}),
             "suggested": suggested_pairs()}

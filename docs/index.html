@@ -133,6 +133,17 @@ th{color:var(--sub);font-weight:500}
 .rate .rb{display:flex;gap:6px;margin-bottom:6px}
 .rate .rb button{flex:1;padding:9px 2px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:13px;font-weight:600}
 .rate .rb button.on{border-color:var(--brand);background:rgba(255,122,61,.15);color:var(--brand)}
+.tv{margin:0 14px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.tv summary{list-style:none;cursor:pointer;padding:8px 10px;font-size:13px;font-weight:700;color:#ffd0a8}
+.tv summary::-webkit-details-marker{display:none}
+.tv summary small{margin-left:6px;font-size:11px;color:var(--bg);background:#ffb06e;border-radius:999px;padding:0 6px}
+.tv ul,.tvcard ul,.hc ul{margin:0;padding:0 10px 8px 10px;list-style:none}
+.tv li,.tvcard li,.hc li{font-size:12.5px;line-height:1.5;padding:4px 0;border-top:1px dashed var(--line)}
+.tvk{display:inline-block;font-size:10.5px;font-weight:700;color:var(--sub);margin-right:6px}
+.tvcard{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--tc);border-radius:12px;margin-bottom:8px}
+.tvh{padding:8px 10px 2px;font-weight:800} .tvh .at{color:var(--sub);font-weight:400;margin:0 5px} .tvh small{color:var(--sub);font-weight:400;margin-left:8px;font-size:11px}
+.hc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px;font-size:13px}
+.hc ul{padding:4px 0 0}
 .sec{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin:4px 2px 8px}
 .list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .list .item .badge{width:40px;height:40px;font-size:16px}
@@ -188,6 +199,7 @@ th{color:var(--sub);font-weight:500}
     <button data-v="tiers">ティア表</button>
     <button data-v="hall">殿堂</button>
     <button data-v="aces">エース表</button>
+    <button data-v="trivia">小ネタ</button>
     <button data-v="help">使い方</button>
     <button data-v="post">投稿</button>
     <button data-v="settings">設定</button>
@@ -198,7 +210,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04g";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04h";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -284,6 +296,28 @@ function jn(ab,num){if(num==null||num==="") return ""; const c=tcol(ab); return 
 function jerseyOf(ab,name,g){
   const r=g&&(g.rosters[ab]||[]).find(p=>p.name===name); if(r) return r.jersey;
   return ((DATA.jerseys||{})[ab]||{})[name]||"";
+}
+// ---- 小話(ちなみに)。点数やランクには入れない、読んで楽しむための引き出し ----
+const TV_ICON={"イベント":"🎉","古巣対決":"🏠","復帰":"💪","記録目前":"📈","日本人選手":"🇯🇵","誕生日":"🎂","ファイナル再戦":"🏆","恩師 vs 教え子":"🎓","古巣":"🧳","師弟対決":"🤝","一門":"🌳"};
+function tvItem(x){return `<li><span class="tvk">${TV_ICON[x.kind]||"💡"} ${esc(x.kind)}</span>${esc(x.text)}</li>`}
+function triviaHTML(g){
+  const t=g.trivia||[]; if(!t.length) return "";
+  return `<details class="tv"><summary>💡 ちなみに<small>${t.length}</small></summary><ul>${t.map(tvItem).join("")}</ul></details>`;
+}
+function renderTrivia(){
+  const days=allDays(), base=DATA.days.length-1;
+  const block=(d,i)=>{const gs=d.games.filter(g=>(g.trivia||[]).length).sort((a,b)=>b.trivia.length-a.trivia.length);
+    if(!gs.length) return "";
+    return `<h3>${DAY_NAMES[i-base+2]||""} ${md(d.date)}</h3>`+gs.map(g=>{const [h,a]=g.teams;
+      return `<div class="tvcard" style="--tc:${tcol(h.abbr)}"><div class="tvh">${esc(a.abbr)}<span class="at">@</span><span style="color:${tcol(h.abbr)}">${esc(h.abbr)}</span><small>${g.start}</small></div><ul>${g.trivia.map(tvItem).join("")}</ul></div>`}).join("")};
+  const order=[base,base+1,base+2,base-1,base-2].filter(i=>i>=0&&i<days.length);
+  const coaches=DATA.coaches||{}, ties=DATA.coach_ties||[];
+  const hc=Object.keys(coaches).sort().map(ab=>{const my=ties.filter(t=>t.teams.includes(ab));
+    return `<div class="hc" style="border-left:3px solid ${tcol(ab)}"><b>${ab}</b> ${esc(coaches[ab]||"")}${my.length?`<ul>${my.map(t=>`<li><span class="tvk">${TV_ICON[t.label]||"💡"} ${esc(t.label)}</span>${esc(t.text)}</li>`).join("")}</ul>`:""}</div>`}).join("");
+  return `<div class="legend">知ってると試合がもっと楽しくなる小話。点数やランクには入れてないよ。試合カードの「💡ちなみに」でも見られる</div>`
+    +(order.map(i=>block(days[i],i)).join("")||`<div class="empty">今は小話なし</div>`)
+    +`<h3>HC図鑑(30チームのヘッドコーチ)</h3>${hc}`
+    +`<div class="d" style="margin-top:10px">セレモニーやレジェンドの来場みたいな小話を知ってたら、「投稿」タブの「小話」から教えてね</div>`;
 }
 function previewHTML(g){
   const pv=g.preview; if(!pv) return "";
@@ -413,7 +447,7 @@ function gameCard(g){
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span><span class="hm">${esc(h.abbr)}</span><span class="hmtag">HOME</span></div>
       <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${!g.completed?previewHTML(g):""}${g.state==="pre"&&g.start_utc?`<div><button class="cal" data-act="cal" data-id="${g.id}">📅 カレンダーに入れる</button></div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
-    ${quick(g)}${rev}
+    ${quick(g)}${triviaHTML(g)}${rev}
     <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
       <h3>チームの強み</h3>${str}</div></div>`;
@@ -561,7 +595,7 @@ function renderHelp(){
 let postKind="rivalry", postHeat="hot";
 function renderPost(){
   const teamOpts=sel=>`<option value="">選ぶ</option>`+Object.entries(DATA.teams).map(([k,n])=>`<option value="${k}"${k===sel?" selected":""}>${esc(n)}</option>`).join("");
-  const kinds=[["rivalry","因縁の対決"],["rank","ランクのズレ"],["other","その他"]];
+  const kinds=[["rivalry","因縁の対決"],["rank","ランクのズレ"],["trivia","小話"],["other","その他"]];
   let form="";
   if(postKind==="rivalry") form=`<label>どのカード?</label><div style="display:flex;gap:6px;align-items:center"><select id="pa">${teamOpts("")}</select><span>×</span><select id="pb">${teamOpts("")}</select></div>
     <label>どんな因縁?</label><div class="seg">${[["hot","今まさに燃えてる"],["tradition","昔からの伝統"]].map(([k,l])=>`<button data-act="heat" data-k="${k}" class="${postHeat===k?"on":""}">${l}</button>`).join("")}</div>
@@ -569,6 +603,8 @@ function renderPost(){
     <label>なぜ因縁なの?(きっかけ・最近の出来事)</label><textarea id="pt" rows="3" maxlength="400"></textarea>`;
   else if(postKind==="rank") form=`<label>どの試合?(例:11/2 TOR@LAL)</label><input type="text" id="pg" maxlength="40">
     <label>どうズレてた?(見た感想。高すぎ・低すぎ・その理由)</label><textarea id="pt" rows="4" maxlength="400"></textarea>`;
+  else if(postKind==="trivia") form=`<label>どの試合?(例:11/10 MIA@BOS。日付だけでもOK)</label><input type="text" id="pg" maxlength="40">
+    <label>どんな小話?(例:試合前に◯◯の永久欠番セレモニーがある)</label><textarea id="pt" rows="3" maxlength="400"></textarea>`;
   else form=`<label>意見・要望など</label><textarea id="pt" rows="4" maxlength="400"></textarea>`;
   const riv=Object.entries(DATA.rivalries||{}).filter(([k])=>!k.startsWith("_"));
   const sug=Object.entries(DATA.suggested||{}).sort((a,b)=>(b[1].hot+b[1].tradition)-(a[1].hot+a[1].tradition));
@@ -591,6 +627,7 @@ function sendPost(btn){
   if(postKind==="rivalry"){d.a=v("pa");d.b=v("pb");d.heat=postHeat;
     if(!d.a||!d.b||d.a===d.b){msg.textContent="チームを2つ選んでね";return}}
   else if(postKind==="rank"){d.game=v("pg").trim(); if(!d.text){msg.textContent="どうズレてたか書いてね";return}}
+  else if(postKind==="trivia"){d.game=v("pg").trim(); if(!d.text){msg.textContent="小話の中身を書いてね";return}}
   else if(!d.text){msg.textContent="内容を書いてね";return}
   store.set("nick",by); btn.disabled=true; msg.textContent="送信中…";
   fetch("https://ntfy.sh/"+DATA.suggest_topic,{method:"POST",body:JSON.stringify(d)})
@@ -674,7 +711,7 @@ function render(){
   if(!DATA) return;
   document.getElementById("upd").textContent="更新 "+DATA.generated_at.slice(5,16).replace("T"," ");
   const m=document.getElementById("main");
-  m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="settings"?renderSettings():view==="post"?renderPost():renderHelp();
+  m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="trivia"?renderTrivia():view==="settings"?renderSettings():view==="post"?renderPost():renderHelp();
   loadPendingBd();
 }
 document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
