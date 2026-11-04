@@ -117,6 +117,12 @@ th{color:var(--sub);font-weight:500}
 .whybtn.on{border-color:var(--brand);color:var(--brand)}
 .whyin{font-size:12.5px;color:var(--text);margin-top:3px;font-weight:600}
 .whyin:empty{display:none}
+.pv{font-size:12.5px;color:var(--text);margin-top:2px}
+.rate{margin:12px 0 4px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.rate .q{font-weight:700;font-size:14px;margin-bottom:8px} .rate .q small{font-weight:400;color:var(--sub);font-size:11px;margin-left:4px}
+.rate .rb{display:flex;gap:6px;margin-bottom:6px}
+.rate .rb button{flex:1;padding:9px 2px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:13px;font-weight:600}
+.rate .rb button.on{border-color:var(--brand);background:rgba(255,122,61,.15);color:var(--brand)}
 .sec{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin:4px 2px 8px}
 .list .item{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .list .item .badge{width:40px;height:40px;font-size:16px}
@@ -182,7 +188,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-04c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-04d";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 let DATA=null, view="day", dayIdx=0, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -319,7 +325,26 @@ function renderBd(id,b){
     bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?["切り抜き動画が、そのチームにしては大きく伸びた"]:[]),
   ].join("");
   return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div><div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
+    ${rateBox(id,b.votes||{})}
     <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost">投稿する</button></div>`;
+}
+// ---- 見た人の「面白かった?」(匿名。同じスマホが押し直したら最後の1回だけ数える) ----
+const RATE_JA={good:"◎ 面白かった",ok:"○ 普通",bad:"△ イマイチ"};
+function devId(){let d=store.get("dev"); if(!d){d=Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); store.set("dev",d)} return d}
+function rateBox(id,votes){
+  const mine=store.get("rate_"+id)||"";
+  const total=(votes.good||0)+(votes.ok||0)+(votes.bad||0);
+  return `<div class="rate"><div class="q">見てどうだった?<small>(見た人だけ押してね・匿名)</small></div>
+    <div class="rb">${Object.keys(RATE_JA).map(k=>`<button class="${mine===k?"on":""}" data-act="rate" data-id="${id}" data-v="${k}">${RATE_JA[k]}</button>`).join("")}</div>
+    <div class="d" id="rc_${id}">${total?`みんなの評価(${total}人):◎${votes.good||0} ○${votes.ok||0} △${votes.bad||0}(1時間ごとに集計)`:"まだ誰も評価してないよ"}${mine?"・あなたは"+RATE_JA[mine]:""}</div></div>`;
+}
+function sendRate(el){
+  const id=el.dataset.id, v=el.dataset.v;
+  el.closest(".rb").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===el));
+  store.set("rate_"+id,v);
+  fetch("https://ntfy.sh/"+DATA.suggest_topic,{method:"POST",body:JSON.stringify({kind:"rate",game:id,v,dev:devId()})})
+    .then(r=>{if(!r.ok) throw 0; const c=document.getElementById("rc_"+id); if(c) c.textContent="ありがとう!みんなの評価は1時間ごとに集計されるよ・あなたは"+RATE_JA[v]})
+    .catch(()=>{const c=document.getElementById("rc_"+id); if(c) c.textContent="送れなかった。もう一度押してね"});
 }
 function loadBd(id){
   const el=document.getElementById("bd_"+id); if(!el) return; el.removeAttribute("data-pending");
@@ -346,7 +371,7 @@ function gameCard(g){
   return `<div class="card${tc?" home":""}" id="g_${g.id}"${tc?` style="--tc:${tc}"`:""}>
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span><span class="hm">${esc(h.abbr)}</span><span class="hmtag">HOME</span></div>
-      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${tierLine(g)}</div>${stateLabel(g)}</div>
+      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${!g.completed&&g.preview?`<div class="pv">見どころ:${esc(g.preview)}</div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
     ${quick(g)}${rev}
     <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
@@ -624,6 +649,7 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="wask"){document.getElementById("wf_"+id).style.display="block";el.style.display="none";return}
   if(act==="wcancel"){document.getElementById("wf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="wask"]').style.display="";return}
   if(act==="watched"){store.set("watched_"+id,"1");computeTiers();render();return}
+  if(act==="rate"){sendRate(el);return}
   if(act==="why"){
     const box=document.getElementById("wy_"+id); if(!box) return;
     if(box.textContent){box.textContent="";el.classList.remove("on");return}

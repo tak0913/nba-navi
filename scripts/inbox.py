@@ -11,7 +11,9 @@ import json, os, re, time, urllib.request, datetime as dt
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(HERE, "config.json")))
 PATH = os.path.join(HERE, "suggestions.json")
+RATINGS = os.path.join(HERE, "ratings.json")   # 見た人の「面白かった?」{試合id: {端末の印: good/ok/bad}}
 KINDS = {"rivalry", "rank", "other"}
+RATE = {"good", "ok", "bad"}
 HEAT = {"hot", "tradition"}
 
 
@@ -68,13 +70,29 @@ def main():
         return
     teams = set(json.load(open(os.path.join(HERE, "stars.json"))).keys()) - {"_note"}
     seen = {i["id"] for i in st["items"]}
-    new = []
+    new, rated = [], 0
+    try:
+        ratings = json.load(open(RATINGS))
+    except Exception:
+        ratings = {}
     for ln in lines:
         try:
             m = json.loads(ln)
         except Exception:
             continue
         if m.get("event") != "message" or m.get("id") in seen:
+            continue
+        try:
+            d = json.loads(m.get("message", ""))
+        except Exception:
+            d = None
+        if isinstance(d, dict) and d.get("kind") == "rate":
+            # 同じ端末が同じ試合を押し直したら、最後の1回だけ数える
+            g, dev, v = clean(d.get("game"), 20), clean(d.get("dev"), 16), d.get("v")
+            if g.isdigit() and dev and v in RATE:
+                ratings.setdefault(g, {})[dev] = v
+                rated += 1
+            st["last_poll"] = max(st.get("last_poll", 0), int(m.get("time", 0)))
             continue
         it = parse(m, teams)
         if it:
@@ -83,7 +101,9 @@ def main():
         st["last_poll"] = max(st.get("last_poll", 0), int(m.get("time", 0)))
     st["items"] = (st["items"] + new)[-500:]
     json.dump(st, open(PATH, "w"), ensure_ascii=False, indent=1)
-    print(f"inbox: {len(new)} new")
+    if rated:
+        json.dump(ratings, open(RATINGS, "w"), separators=(",", ":"))
+    print(f"inbox: {len(new)} new, {rated} ratings")
     owner = os.environ.get("NTFY_TOPIC")
     if new and owner:
         kinds = {"rivalry": "因縁", "rank": "ランクのズレ", "other": "その他"}

@@ -122,6 +122,7 @@ jobs:
           git add scripts/buzz_state.json
           git add scripts/clip_hist.json 2>/dev/null || true
           git add scripts/alert_state.json 2>/dev/null || true
+          git add scripts/ratings.json 2>/dev/null || true
           git add -A scripts/votes 2>/dev/null || true
           git add scripts/upgrades.json 2>/dev/null || true
           git add scripts/suggestions.json 2>/dev/null || true

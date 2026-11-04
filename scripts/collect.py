@@ -1045,6 +1045,34 @@ def apply_absence(records):
     return records
 
 
+def preview_line(teams, out_pre, pdet, clash):
+    """試合前の見どころ(ネタバレにならない、試合前にわかることだけ)"""
+    order = {"mvp": 0, "allstar": 1, "ace": 2}
+    tops = []
+    for t in sorted(teams, key=lambda t: t["homeAway"] != "away"):   # アウェイ vs ホーム の順
+        avail = [p for p in star_list(t["abbr"]) if norm(p["name"]) not in out_pre.get(t["abbr"], set())]
+        avail.sort(key=lambda p: order.get(p["tier"], 3))
+        tops.append(short_name(avail[0]["name"]) if avail else None)
+    out = []
+    if all(tops):
+        out.append(f"{tops[0]} vs {tops[1]}")
+    riv = load_json(os.path.join(HERE, "rivalries.json"), {}).get("-".join(sorted(t["abbr"] for t in teams)))
+    if riv and riv.get("type") == "hot":
+        out.append(f"因縁:{riv.get('name')}")
+    for x in pdet:
+        if x["txt"] == "両チーム勝率5割以上":
+            out.append("両チーム勝ち越し")
+        elif "欠場" in x["txt"]:
+            ab = x["txt"].split(":")[0]
+            lst = star_list(ab)
+            outs = [short_name(p["name"]) for p in lst[:2] if norm(p["name"]) in out_pre.get(ab, set())]
+            if outs:
+                out.append(f"{'と'.join(outs)}欠場")
+    if clash:
+        out.append("強み同士の対決")
+    return " / ".join(out[:4])
+
+
 def build_game(e, start, season, strong, roster_cache):
     comp = e["competitions"][0]
     state = comp["status"]["type"]["state"]
@@ -1081,7 +1109,8 @@ def build_game(e, start, season, strong, roster_cache):
         rows.sort(key=lambda r: (order[r["tier"]], r["name"]))
         rosters[t["abbr"]] = rows
 
-    card_pre = card_quality(teams, out_pre, winning)
+    pdet = []
+    card_pre = card_quality(teams, out_pre, winning, pdet)
     clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
     st = e.get("season", {})
     g = {
@@ -1093,6 +1122,7 @@ def build_game(e, start, season, strong, roster_cache):
         "rosters": rosters,
         "strengths": {t["abbr"]: strong.get(t["abbr"], []) for t in teams},
         "expect": expect_stars(card_pre, clash),
+        "preview": preview_line(teams, out_pre, pdet, clash),
         "result": None,
     }
     rec = None
@@ -1366,6 +1396,9 @@ def send_alerts(today, records):
         add, drop = star_suggestions(records, today)
         if add or drop:
             parts.append("【エース表の見直し候補】\n" + "\n".join(["入れる候補:"] + (add or ["なし"]) + ["外す候補:"] + (drop or ["なし"])))
+        gaps = rating_gaps(records)
+        if gaps:
+            parts.append("【みんなの評価とランクのずれ(先月まで)】\n" + "\n".join(gaps[-20:]))
         add, drop = aura_suggestions(today, records)
         if add or drop:
             parts.append("【華の見直し候補(切り抜き動画の見られ方・直近30日)】\n" + "\n".join(["華を付ける候補:"] + (add or ["なし"]) + ["華を外す候補:"] + (drop or ["なし"])))
@@ -1460,6 +1493,25 @@ def why_line(out):
     return line
 
 
+RATINGS_DATA = load_json(os.path.join(HERE, "ratings.json"), {})
+
+
+def rating_gaps(records):
+    """みんなの評価とランクがずれている試合(3票以上)。基準を直す材料として持ち主に知らせる"""
+    out = []
+    for r in records:
+        v = list((RATINGS_DATA.get(str(r["id"])) or {}).values())
+        if len(v) < 3:
+            continue
+        good, bad = v.count("good") / len(v), v.count("bad") / len(v)
+        t = r.get("tier") or "-"
+        if t in ("SS", "S", "A") and bad >= 0.5:
+            out.append(f"{r['date']} {r['away']}@{r['home']}:{t}なのにイマイチが{v.count('bad')}/{len(v)}")
+        elif t in ("C", "-") and good >= 0.5:
+            out.append(f"{r['date']} {r['away']}@{r['home']}:{'ランク外' if t == '-' else t}なのに面白かったが{v.count('good')}/{len(v)}")
+    return out
+
+
 def write_breakdowns(records, out_dir):
     """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
     d = os.path.join(out_dir, "b")
@@ -1476,6 +1528,8 @@ def write_breakdowns(records, out_dir):
         out["moment"] = {"pts": moment_bonus(r)}
         out["total"] = fs(r)
         out["why"] = why_line(out)
+        v = list((RATINGS_DATA.get(str(r["id"])) or {}).values())
+        out["votes"] = {k: v.count(k) for k in ("good", "ok", "bad")}
         json.dump(out, open(os.path.join(d, f"{r['id']}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
 
 
