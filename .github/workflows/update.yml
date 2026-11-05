@@ -172,11 +172,11 @@ jobs:
           exit 1
 
       # 記録の保存に失敗しても、採点まで終わっていれば画面は新しくする
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
         with:
           path: docs
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
