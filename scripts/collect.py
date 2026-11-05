@@ -641,7 +641,8 @@ def score_record(e, start, summary, season, strong, label=None):
         "lineup": {ab: {"st": {r["id"]: r["name"] for r in rows if r["starter"] and not r["dnp"]},
                         "pl": [r["id"] for r in rows if not r["dnp"]],
                         "out": sorted(out_post.get(ab, set())),
-                        "pts": {r["id"]: [r["name"], int(num(r["stats"].get("PTS")))] for r in rows if not r["dnp"]}}
+                        "pts": {r["id"]: [r["name"], int(num(r["stats"].get("PTS")))] for r in rows if not r["dnp"]},
+                        "min": {r["id"]: int(num(r["stats"].get("MIN"))) for r in rows if not r["dnp"]}}
                    for ab, rows in box.items()},
         "end_utc": plays[-1].get("wallclock") if plays else None,   # 中だけで使う(画面には渡さない:試合の長さ=延長のヒントになる)
         "start_utc": e.get("date"),
@@ -1345,6 +1346,54 @@ def preview_line(teams, out_pre, pdet, clash, roster_cache=None):
     return {"vs": tops if all(tops) else None, "rest": " / ".join(out[:3]), "tie": tie}
 
 
+USAGE = {}   # チーム → {選手id: {"st": 先発数, "gp": 出場数, "tot": 合計出場時間, "n": 数えた試合数}}(ロスターの並び用)
+
+
+def build_usage(records, now):
+    """ロスターの並び用に、直近 usage_games 試合の起用(先発・出場時間)を数える。
+    推しの試合を隠している間のヒントにならないよう、始まってから favorite_hide 時間たった試合だけ使う"""
+    n = R.get("usage_games", 10)
+    cut = now - dt.timedelta(hours=CFG.get("favorite_hide_hours", 24) + CFG.get("favorite_hide_pad_hours", 3))
+    by_team = {}
+    for r in records:
+        if r.get("type") not in ("regular", "playoff", "playin") or not r.get("start_utc") or jst(r["start_utc"]) > cut:
+            continue
+        for ab, lu in (r.get("lineup") or {}).items():
+            by_team.setdefault(ab, []).append((r["start_utc"], lu))
+    for ab, lst in by_team.items():
+        lst.sort(key=lambda x: x[0])
+        recent = lst[-n:]
+        u = {}
+        for _, lu in recent:
+            mins = lu.get("min") or {}
+            for pid in lu.get("pl", []):
+                d = u.setdefault(str(pid), {"st": 0, "gp": 0, "tot": 0, "n": len(recent)})
+                d["gp"] += 1
+                d["tot"] += mins.get(pid, mins.get(str(pid), 0))
+            for pid in (lu.get("st") or {}):
+                u.setdefault(str(pid), {"st": 0, "gp": 0, "tot": 0, "n": len(recent)})["st"] += 1
+        USAGE[ab] = u
+
+
+def roster_order(abbr, rows):
+    """ロスターの並び:エース表の選手(MVP級→AS級→エース)が先、そのあと
+    いつもの先発(直近の半分以上で先発)→ベンチ。どちらも直近の出場時間の合計が多い順(ケガで出ていない選手は下へ)"""
+    u = USAGE.get(abbr, {})
+    order = {"mvp": 0, "allstar": 1, "ace": 2, "other": 3}
+    def key(r):
+        d = u.get(str(r.get("_id")), {})
+        regular = d.get("n") and d.get("st", 0) * 2 >= d["n"]
+        return (order[r["tier"]], 0 if regular else 1, -d.get("tot", 0), r["name"])
+    for r in rows:
+        d = u.get(str(r.get("_id")), {})
+        r["role"] = "先発" if d.get("n") and d.get("st", 0) * 2 >= d["n"] else ""
+        r["mpg"] = round(d["tot"] / d["gp"]) if d.get("gp") else None
+    rows.sort(key=key)
+    for r in rows:
+        r.pop("_id", None)
+    return rows
+
+
 def build_game_safe(e, start, season, strong, roster_cache):
     """1試合の取得に失敗しても、その回の更新全体は止めない。
     中身が取れなかった試合は対戦カードと時刻だけ出し(stale)、記録(採点)は前回のまま"""
@@ -1388,14 +1437,12 @@ def build_game(e, start, season, strong, roster_cache, summary=None):
         rows = []
         for a in roster_cache[t["id"]]:
             st = inj.get(t["abbr"], {}).get(norm(a["displayName"]))
-            rows.append({"name": a["displayName"], "jersey": a.get("jersey", ""),
+            rows.append({"_id": a.get("id"), "name": a["displayName"], "jersey": a.get("jersey", ""),
                          "pos": a.get("position", {}).get("abbreviation", ""),
                          "status": st["status"] if st else "", "detail": st["detail"] if st else "",
                          "ret": st["return"] if st else "",
                          "tier": tier_of(t["abbr"], a["displayName"])})
-        order = {"mvp": 0, "allstar": 1, "ace": 2, "other": 3}
-        rows.sort(key=lambda r: (order[r["tier"]], r["name"]))
-        rosters[t["abbr"]] = rows
+        rosters[t["abbr"]] = roster_order(t["abbr"], rows)
 
     pdet = []
     card_pre = card_quality(teams, out_pre, winning, pdet, context_items(comp, teams, start.date()))
@@ -2078,6 +2125,7 @@ def main():
             if len(v) > 3 and _moment_ok(v[3]):   # 古い版の名場面は捨てて測り直す
                 r["moment"] = v[3]
 
+    build_usage(list(archive.values()), now)
     # 通常の更新:直近3日を画面用に取り直し、終わった試合を記録に追加
     days, roster_cache = [], {}
     for back in (0, 1, 2):

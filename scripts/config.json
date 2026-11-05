@@ -93,7 +93,8 @@
     "career_high_min_pts": 25,
     "career_high_min_games": 50,
     "race_from": "02-01",
-    "race_gb": 3
+    "race_gb": 3,
+    "usage_games": 10
   },
   "tiers": {
     "SS": {

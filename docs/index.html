@@ -137,6 +137,8 @@ th{color:var(--sub);font-weight:500}
 .aces .jn{min-width:19px;height:19px;font-size:10px;margin-right:4px;vertical-align:-4px}
 .cup{display:inline-block;font-size:11px;margin-top:3px;padding:1px 7px;border-radius:9px;background:rgba(214,175,55,.12);color:#d6af37}
 .cup.ko{background:rgba(214,175,55,.28);font-weight:700}
+.pl .role{font-size:10px;padding:0 5px;margin-left:4px;border-radius:6px;border:1px solid var(--sub);color:var(--sub);vertical-align:2px}
+.pl .mpg{font-size:10px;color:var(--sub);margin-left:4px}
 .stale{font-size:11px;color:#f5c26b;margin-top:3px}
 .rate{margin:12px 0 4px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .rate .q{font-weight:700;font-size:14px;margin-bottom:8px} .rate .q small{font-weight:400;color:var(--sub);font-size:11px;margin-left:4px}
@@ -236,7 +238,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-05d";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-05e";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -369,7 +371,7 @@ function previewHTML(g){
   return (vs||rest||tie)?`<div class="pv">${vs?`<div class="pvm">${vs}</div>`:""}${tie}${rest}</div>`:"";
 }
 function roster(g,t){
-  const rows=(g.rosters[t.abbr]||[]).map(p=>`<div class="pl">${p.jersey!==""?jn(t.abbr,p.jersey):'<span class="jn" style="background:var(--panel2)"></span>'}${esc(p.name)} <small style="color:var(--sub)">${esc(p.pos)}</small>${p.tier!=="other"?`<span class="tier ${p.tier}">${TIER_SHORT[p.tier]}</span>`:""}${p.status?`<span class="st chip ${chipClass(p.status)}">${p.status}${p.detail?"・"+esc(p.detail):""}${p.ret?"<br>"+esc(p.ret):""}</span>`:""}</div>`).join("");
+  const rows=(g.rosters[t.abbr]||[]).map(p=>`<div class="pl">${p.jersey!==""?jn(t.abbr,p.jersey):'<span class="jn" style="background:var(--panel2)"></span>'}${esc(p.name)} <small style="color:var(--sub)">${esc(p.pos)}</small>${p.tier!=="other"?`<span class="tier ${p.tier}">${TIER_SHORT[p.tier]}</span>`:""}${p.role?`<span class="role">先発</span>`:""}${p.mpg!=null?`<small class="mpg">${p.mpg}分</small>`:""}${p.status?`<span class="st chip ${chipClass(p.status)}">${p.status}${p.detail?"・"+esc(p.detail):""}${p.ret?"<br>"+esc(p.ret):""}</span>`:""}</div>`).join("");
   return `<div class="roster"><div class="ttl">${esc(t.short)} <small>${t.homeAway==="home"?"ホーム":"アウェイ"}</small></div>${rows}</div>`;
 }
 function boxTable(rows){
