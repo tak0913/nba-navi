@@ -24,6 +24,9 @@ on:
       remeasure:
         description: "余韻を全部測り直す? (yes/no)"
         default: "no"
+      auto:
+        description: "定期の回と同じ動き(試合前の通知・その時間の通知)をする? 見張り番(watch.yml)が yes で動かす"
+        default: "no"
 
 permissions:
   contents: write
@@ -72,7 +75,7 @@ jobs:
           cd scripts
           EXTRA=""
           if [ "${{ github.event.inputs.remeasure }}" = "yes" ]; then EXTRA="--remeasure"; fi
-          if [ "${{ github.event_name }}" = "schedule" ]; then EXTRA="$EXTRA --prenotify --notify-auto"; fi
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.auto }}" = "yes" ]; then EXTRA="$EXTRA --prenotify --notify-auto"; fi
           if [ "${{ github.event.inputs.notify }}" = "yes" ]; then EXTRA="$EXTRA --notify-now"; fi
           OUT_DIR=../docs python collect.py --rebuild $EXTRA
 

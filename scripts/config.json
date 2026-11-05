@@ -186,5 +186,11 @@
   "_note_context": "試合の重み(③カードの格に、上限とは別に足す。合計 context_cap まで):NBAカップの準々決勝・準決勝 cup_knockout、決勝 cup_final。2/1(race_from)以降、同じカンファレンスで両方5〜8位か9〜12位・差がrace_gb試合以内の直接対決 race(順位は2日前まで=前の日の結果は入れない)",
   "notify_lead_minutes": 20,
   "notify_max_late_minutes": 150,
-  "_note_notify": "定期通知:9・12・15・18・21時の notify_lead_minutes 分前を過ぎて、まだ送っていなければ最初に動いた回が送る。notify_max_late_minutes 分以上遅れたらその時間の分は送らない"
+  "_note_notify": "定期通知:9・12・15・18・21時の notify_lead_minutes 分前を過ぎて、まだ送っていなければ最初に動いた回が送る。notify_max_late_minutes 分以上遅れたらその時間の分は送らない",
+  "watch": {
+    "_note": "試合の見張り番(watch.py)。poll_seconds 秒ごとにESPNを見て、試合が終わったらすぐ更新を動かす。試合中がなく max_wait_minutes 分以内に始まる試合もなければ終わる。最長 max_minutes 分(GitHubの上限は360分)",
+    "poll_seconds": 90,
+    "max_wait_minutes": 70,
+    "max_minutes": 340
+  }
 }

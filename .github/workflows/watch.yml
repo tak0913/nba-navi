@@ -1,0 +1,28 @@
+name: 試合の見張り
+
+# 試合がある時間はESPNを数分おきに見て、試合が終わったらすぐ「更新と通知」を動かす(scripts/watch.py)。
+# GitHubの定期実行は遅れたり抜けたりするので、毎時起こしておく。見張りがすでに動いていれば、
+# 新しい回は順番待ちになり(待つのは1つだけ)、前の見張りが終わったあとに起きて、見張る試合がなければすぐ終わる。
+on:
+  schedule:
+    - cron: "3 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write      # 更新(update.yml)を動かすため
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+      - name: 見張る(試合が終わったら更新を動かす)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cd scripts && python3 watch.py
