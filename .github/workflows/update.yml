@@ -70,6 +70,7 @@ jobs:
           cd scripts
           EXTRA=""
           if [ "${{ github.event.inputs.remeasure }}" = "yes" ]; then EXTRA="--remeasure"; fi
+          if [ "${{ github.event_name }}" = "schedule" ]; then EXTRA="$EXTRA --prenotify"; fi
           OUT_DIR=../docs python collect.py --rebuild $EXTRA
 
       - name: 公式Bluesky(月末の決選投票・毎日の速報)
@@ -111,6 +112,28 @@ jobs:
           print(f"sent {ok}/{len(ch)} channels")
           PY
 
+      - name: 試合前の通知(🔥・★3の試合が始まる前。持ち主+みんなのチャンネル全部)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ ! -s scripts/prenotify.txt ]; then exit 0; fi
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          cfg = json.load(open("scripts/config.json"))
+          text = open("scripts/prenotify.txt").read().encode()
+          topics = [os.environ.get("NTFY_TOPIC") or ""] + [cfg["public_topic_prefix"] + k for k in json.load(open("scripts/notify_channels.json"))]
+          ok = 0
+          for t in [t for t in topics if t]:
+              req = urllib.request.Request("https://ntfy.sh/" + t, data=text,
+                    headers={"Title": "NBA Navi(まもなく開始)", "Tags": "fire", "Click": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"})
+              try:
+                  urllib.request.urlopen(req, timeout=20); ok += 1
+              except Exception as e:
+                  print("failed:", type(e).__name__)
+              time.sleep(1)
+          print(f"prenotify sent {ok}")
+          PY
+
       - name: 持ち主への知らせ(測定の見張り・エース表の見直し)
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
@@ -131,6 +154,7 @@ jobs:
           git add scripts/upgrades.json 2>/dev/null || true
           git add scripts/suggestions.json 2>/dev/null || true
           git add scripts/bsky_state.json 2>/dev/null || true
+          git add scripts/prenotify_state.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
           # 別の回と同時に記録を書いてぶつかったときは、この回の記録を優先して入れ直す(何回か試す)

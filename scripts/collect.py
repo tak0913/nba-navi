@@ -1535,6 +1535,40 @@ def bsky_daily(today, games_today, arch):
     return {"date": today.isoformat(), "total": len(games_today), "done": len(done), "lines": lines}
 
 
+PRE_STATE = os.path.join(HERE, "prenotify_state.json")   # 試合前の通知を同じ試合に2回送らないための記録
+
+
+def prenotify_text(now, games):
+    """🔥か★3の試合が始まる前(prenotify_minutes分前まで)の通知。試合前なので結果は出ようがない。
+    1回の通知にまとめ、同じ試合には1回だけ送る"""
+    win = CFG.get("prenotify_minutes", 50)
+    state = load_json(PRE_STATE, {})
+    pick = []
+    for g in games:
+        if g.get("state") != "pre" or not g.get("start_utc") or str(g["id"]) in state:
+            continue
+        if not (g.get("expect", 0) >= 3 or g.get("heat")):
+            continue
+        mins = (jst(g["start_utc"]) - now).total_seconds() / 60
+        if 0 < mins <= win:
+            pick.append((mins, g))
+    if not pick:
+        return ""
+    lines = ["まもなく開始の注目試合"]
+    for mins, g in sorted(pick, key=lambda x: x[0]):
+        home = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "home")
+        away = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "away")
+        big = next((x for x in g.get("trivia", []) if x.get("big")), None)
+        t = g.get("heat") or (big or {}).get("text") or ""
+        lines.append(f"{g['start']}開始(あと{int(mins)}分) {away} @ {home} {'★' * (g.get('expect') or 1)}{' 🔥' if g.get('heat') else ''}")
+        if t:
+            lines.append(f"  └ {t[:60]}{'…' if len(t) > 60 else ''}")
+        state[str(g["id"])] = now.date().isoformat()
+    cut = (now.date() - dt.timedelta(days=10)).isoformat()   # 古い記録は捨てる
+    json.dump({k: v for k, v in state.items() if v >= cut}, open(PRE_STATE, "w"))
+    return "\n".join(lines)
+
+
 # ---------- メイン ----------
 ALERT_STATE = os.path.join(HERE, "alert_state.json")   # 同じ知らせを何度も送らないための記録
 SIGNAL_JA = {"news": "ニュース", "national": "地元以外のニュース", "yt": "フルハイライト動画", "clips": "切り抜き動画", "bsky": "Bluesky"}
@@ -1967,6 +2001,9 @@ def main():
     write_ics(days + future, out_dir)
 
     # 通知:持ち主用(config の favorites)
+    # 試合前の通知(定期の回だけ送る。送るかどうかは workflow が prenotify.txt の中身で決める)
+    pre = prenotify_text(now, days[0]["games"] + (future[0]["games"] if future else [])) if "--prenotify" in sys.argv else ""
+    open(os.path.join(HERE, "prenotify.txt"), "w").write(pre)
     open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch, tomorrow=future[0]["games"] if future else None))
     # Bluesky の毎日の速報(持ち主の推しは24時間隠したまま)。投稿は bsky_daily.py
     json.dump(bsky_daily(today, days[0]["games"], arch), open(os.path.join(HERE, "bsky_daily.json"), "w"), ensure_ascii=False)
