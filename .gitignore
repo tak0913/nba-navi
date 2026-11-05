@@ -11,3 +11,5 @@ scripts/cache/
 docs/b/
 docs/cal/
 scripts/prenotify.txt
+scripts/prenotify.json
+scripts/notify_now

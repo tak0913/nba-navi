@@ -12,7 +12,7 @@
 
 ネタバレ防止のため、このスクリプトは標準出力に試合の中身を一切出さない。
 """
-import json, os, sys, re, unicodedata, urllib.request, datetime as dt
+import json, os, sys, re, time, unicodedata, urllib.request, datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,6 +49,32 @@ DETAIL_JA = [("Not Specified", "理由未発表"), ("Rest", "休養"), ("Illness
     ("Mouth", "口"), ("Ear", "耳"), ("Patella", "膝蓋骨"), ("Coach's Decision", "監督判断")]
 
 SEASON_TYPE = {1: "pre", 2: "regular", 3: "playoff", 5: "playin"}
+CUP_JA = {"group": "グループリーグ", "qf": "準々決勝", "sf": "準決勝", "final": "決勝"}
+
+
+def cup_stage(comp):
+    """NBAカップの試合なら段階(group/qf/sf/final)。ESPNの notes の見出し(例:"NBA Cup - Group Play")から読む"""
+    for n in comp.get("notes") or []:
+        h = (n.get("headline") or "").lower()
+        if "cup" not in h:
+            continue
+        if "semi" in h:
+            return "sf"
+        if "quarter" in h:
+            return "qf"
+        if "championship" in h or "final" in h:
+            return "final"
+        return "group"
+    return None
+
+
+def game_type(e):
+    """レギュラー/プレーオフなど。NBAカップ決勝はレギュラーシーズンの試合に数えないので、
+    ESPNが別の種類で出してきてもランクから抜け落ちないよう、レギュラーと同じ表で比べる"""
+    t = SEASON_TYPE.get(e.get("season", {}).get("type"))
+    if t is None and cup_stage(e["competitions"][0]):
+        return "regular"
+    return t
 
 
 # ---------- 小さな道具 ----------
@@ -104,6 +130,7 @@ def get(url, tries=3):
         except Exception:
             if i == tries - 1:
                 raise
+            time.sleep(1 + 2 * i)   # ESPNが一瞬つまずいただけのことが多いので、少し待ってからやり直す(1秒→3秒)
 
 
 def norm(name):
@@ -188,6 +215,7 @@ def load_league():
 # ---------- 試合の取得 ----------
 # ---------- 取ったデータの保存(終わった試合の中身は変わらないので、1回取ったら使い回す) ----------
 CACHE_DIR = os.path.join(HERE, "cache")
+STALE = {"roster": 0, "summary": 0, "game": 0}   # 取れずに前回の分で埋めた件数(ログ用)
 FRESH_DAYS = 2   # この日数より新しい試合は毎回取り直す(スタッツの訂正が入ることがあるため)
 
 
@@ -235,14 +263,22 @@ def get_summary(eid, completed, fresh):
     path = _cache_path("summary", eid)
     if completed and not fresh and os.path.exists(path):
         return _cache_load(path)
+    pre_path = _cache_path("pre", eid)   # まだ終わっていない試合の欠場情報(取れなかったときの予備)
     try:
         sm = get(f"{API}/summary?event={eid}")
     except Exception:
         if os.path.exists(path):
             return _cache_load(path)
+        if not completed and os.path.exists(pre_path):
+            STALE["summary"] += 1
+            sm = _cache_load(pre_path)
+            sm["_stale"] = True
+            return sm
         raise
     if completed:
         _cache_save(path, trim_summary(sm))
+    else:
+        _cache_save(pre_path, {"injuries": sm.get("injuries", [])})
     return sm
 
 
@@ -470,8 +506,8 @@ def score_stars(box, plays, out_by_team=None, detail=None):
     return min(P["star_cap"], round(total, 1)), record, legend, hl
 
 
-def card_quality(teams, out_by_team, winning, detail=None):
-    """③ カードの格"""
+def card_quality(teams, out_by_team, winning, detail=None, ctx=()):
+    """③ カードの格。ctx = 試合の重み(カップの勝ち抜け戦・順位争い)。上限とは別に足す(最大 context_cap)"""
     pts = 0
     add = (lambda txt, v: detail.append({"txt": txt, "pts": v})) if detail is not None else (lambda txt, v: None)
     if all(winning.get(t["abbr"]) for t in teams):
@@ -489,7 +525,13 @@ def card_quality(teams, out_by_team, winning, detail=None):
         elif lst and norm(lst[0]["name"]) in outs:
             v = P["star_ace_out"] if is_star(lst[0]["tier"]) else P["ace_out"]
             pts += v; add(f"{t['abbr']}:エースの{lst[0]['name']}が欠場", v)
-    return max(0, min(P["card_cap"], pts))
+    base = max(0, min(P["card_cap"], pts))
+    extra = 0
+    for x in ctx:
+        extra += x["pts"]
+        if detail is not None:
+            detail.append({"txt": x["txt"], "pts": x["pts"], "ctx": True})
+    return base + min(P.get("context_cap", 10), extra)
 
 
 def game_offrtg(team_stats):
@@ -572,7 +614,7 @@ def score_record(e, start, summary, season, strong, label=None):
     moment_star = any(r["id"] in key and is_star(tier_of(ab, r["name"])) for ab, rows in box.items() for r in rows)
     if moment_star:
         stars = min(P["star_cap"], stars + P["star_moment"])
-    card = card_quality(teams, out_post, winning, cdet)
+    card = card_quality(teams, out_post, winning, cdet, context_items(comp, teams, start.date()))
     clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
     if clash:
         tdet.append({"txt": "強み同士の対決", "pts": clash})
@@ -591,7 +633,7 @@ def score_record(e, start, summary, season, strong, label=None):
     st = e.get("season", {})
     rec = {
         "id": e["id"], "date": start.date().isoformat(),
-        "season": st.get("year"), "type": SEASON_TYPE.get(st.get("type"), "other"),
+        "season": st.get("year"), "type": game_type(e) or "other", "cup": cup_stage(comp),
         "home": teams[0]["abbr"], "away": teams[1]["abbr"],
         "content": round(flow + stars + card + team + record, 1),
         "content_raw": round(flow + stars + card + team + record, 1), "flow": flow, "legend": legend, "hl": hl, "bd": bd,
@@ -1077,7 +1119,14 @@ except Exception:
 
 
 def fetch_roster(tid):
-    d = get(f"{API}/teams/{tid}/roster")
+    """チームの選手名簿。取れたら保存しておき、取れなかったら前回の分を使う(1チームの失敗で全体を止めない)"""
+    path = _cache_path("roster", str(tid))
+    try:
+        d = get(f"{API}/teams/{tid}/roster")
+        _cache_save(path, {"coach": d.get("coach"), "athletes": d.get("athletes", [])})
+    except Exception:
+        STALE["roster"] += 1
+        d = _cache_load(path) if os.path.exists(path) else {}
     c = (d.get("coach") or [{}])[0]
     if c.get("lastName"):
         COACH_BY_TEAMID[str(tid)] = f"{c.get('firstName', '')} {c['lastName']}".strip()
@@ -1281,6 +1330,8 @@ def preview_line(teams, out_pre, pdet, clash, roster_cache=None):
     for x in pdet:
         if x["txt"] == "両チーム勝率5割以上":
             out.append("両チーム勝ち越し")
+        elif x["txt"].startswith("NBAカップ") or "争いの直接対決" in x["txt"]:
+            out.insert(0, x["txt"])
         elif "欠場" in x["txt"]:
             ab = x["txt"].split(":")[0]
             lst = star_list(ab)
@@ -1294,11 +1345,27 @@ def preview_line(teams, out_pre, pdet, clash, roster_cache=None):
     return {"vs": tops if all(tops) else None, "rest": " / ".join(out[:3]), "tie": tie}
 
 
-def build_game(e, start, season, strong, roster_cache):
+def build_game_safe(e, start, season, strong, roster_cache):
+    """1試合の取得に失敗しても、その回の更新全体は止めない。
+    中身が取れなかった試合は対戦カードと時刻だけ出し(stale)、記録(採点)は前回のまま"""
+    try:
+        return build_game(e, start, season, strong, roster_cache)
+    except Exception:
+        STALE["game"] += 1
+        try:
+            g, _ = build_game(e, start, season, strong, roster_cache, summary={"_stale": True, "_failed": True})
+            return g, None
+        except Exception:
+            return None, None
+
+
+def build_game(e, start, season, strong, roster_cache, summary=None):
     comp = e["competitions"][0]
     state = comp["status"]["type"]["state"]
     completed = comp["status"]["type"].get("completed", False)
-    summary = get_summary(e["id"], completed, fresh=True)
+    if summary is None:
+        summary = get_summary(e["id"], completed, fresh=True)
+    failed = bool(summary.get("_failed"))
     teams, home_id, winning = parse_teams(comp, completed)
 
     inj = {}
@@ -1331,12 +1398,12 @@ def build_game(e, start, season, strong, roster_cache):
         rosters[t["abbr"]] = rows
 
     pdet = []
-    card_pre = card_quality(teams, out_pre, winning, pdet)
+    card_pre = card_quality(teams, out_pre, winning, pdet, context_items(comp, teams, start.date()))
     clash = P["strength_clash"] if all(strong.get(t["abbr"]) for t in teams) else 0
     st = e.get("season", {})
     g = {
         "id": e["id"], "date": start.date().isoformat(), "start": start.strftime("%H:%M"), "start_utc": e.get("date"),
-        "type": SEASON_TYPE.get(st.get("type"), "other"),
+        "type": game_type(e) or "other", "cup": cup_stage(comp),
         "state": state, "completed": completed,
         "venue": comp.get("venue", {}).get("fullName", ""),
         "teams": [{k: v for k, v in t.items() if not k.startswith("_")} for t in teams],
@@ -1346,8 +1413,11 @@ def build_game(e, start, season, strong, roster_cache):
         "preview": preview_line(teams, out_pre, pdet, clash, roster_cache),
         "result": None,
     }
+    if summary.get("_stale"):
+        # 今回はESPNから取れなかったので前回の情報(欠場など)を出している/何も取れなかった
+        g["stale"] = "nodata" if failed else "prev"
     rec = None
-    if completed:
+    if completed and not failed:
         rec = score_record(e, start, summary, season, strong)
         box = box_players(summary)
         lines = {}
@@ -1433,7 +1503,7 @@ def backfill(dates, season, strong, archive, label=None, fallback=None):
             comp = e["competitions"][0]
             if not comp["status"]["type"].get("completed"):
                 continue
-            if SEASON_TYPE.get(e.get("season", {}).get("type")) in ("pre", None):
+            if game_type(e) in ("pre", None):
                 continue
             try:
                 fresh = (_today_jst() - start.date()).days <= FRESH_DAYS
@@ -1484,11 +1554,36 @@ def tomorrow_lines(games):
     return out
 
 
-def notify_text(now, games_today, arch, favs=None, tomorrow=None):
+NOTIFY_STATE = os.path.join(HERE, "notify_state.json")   # どの時間の通知を送ったか(同じ時間に2回送らない)
+
+
+def notify_due(now):
+    """今この回で送るべき定期通知の時間(9・12・15・18・21時のどれか)。
+    GitHubの定期実行は遅れたり抜けたりするので、「その時間の lead 分前を過ぎて、まだ送っていなければ送る」。
+    遅れすぎ(max_late 分以上)なら、その時間の分は送らない(次の時間を待つ)"""
+    lead = dt.timedelta(minutes=CFG.get("notify_lead_minutes", 20))
+    max_late = dt.timedelta(minutes=CFG.get("notify_max_late_minutes", 150))
+    sent = load_json(NOTIFY_STATE, {}).get("last")
+    for slot in sorted(CFG["notify_slots_jst"], reverse=True):
+        t = now.replace(hour=slot, minute=0, second=0, microsecond=0) - lead
+        if t <= now:
+            key = f"{now.date().isoformat()}T{slot:02d}"
+            if sent == key or now - t > max_late:
+                return None
+            return slot, key
+    return None
+
+
+def mark_notified(key):
+    json.dump({"last": key}, open(NOTIFY_STATE, "w"))
+
+
+def notify_text(now, games_today, arch, favs=None, tomorrow=None, slot=None):
     favs = CFG["favorites"] if favs is None else favs
     slots = CFG["notify_slots_jst"]
     cur = now.hour * 60 + now.minute
-    slot = min(slots, key=lambda h: abs(h * 60 - cur))
+    if slot is None:
+        slot = min(slots, key=lambda h: abs(h * 60 - cur))
     prev = [h for h in slots if h < slot]
     if prev:
         prev_t = now.replace(hour=max(prev), minute=0, second=0, microsecond=0)
@@ -1538,35 +1633,56 @@ def bsky_daily(today, games_today, arch):
 PRE_STATE = os.path.join(HERE, "prenotify_state.json")   # 試合前の通知を同じ試合に2回送らないための記録
 
 
-def prenotify_text(now, games):
-    """🔥か★3の試合が始まる前(prenotify_minutes分前まで)の通知。試合前なので結果は出ようがない。
-    1回の通知にまとめ、同じ試合には1回だけ送る"""
+def prenotify_build(now, games, channel_keys):
+    """試合前の通知。チャンネルごとの文面 {"_owner": 持ち主, "none"/"hou"…: みんなのチャンネル}。
+    ・🔥か★3の試合(みんな共通)
+    ・そのチャンネルの推しチームの試合(★に関係なく)
+    どちらも始まる prenotify_minutes 分前まで。試合前なので結果は出ようがない。同じ試合には1回だけ送る"""
     win = CFG.get("prenotify_minutes", 50)
     state = load_json(PRE_STATE, {})
-    pick = []
-    for g in games:
-        if g.get("state") != "pre" or not g.get("start_utc") or str(g["id"]) in state:
-            continue
-        if not (g.get("expect", 0) >= 3 or g.get("heat")):
-            continue
-        mins = (jst(g["start_utc"]) - now).total_seconds() / 60
-        if 0 < mins <= win:
-            pick.append((mins, g))
-    if not pick:
-        return ""
-    lines = ["まもなく開始の注目試合"]
-    for mins, g in sorted(pick, key=lambda x: x[0]):
+    def mins_to(g):
+        if g.get("state") != "pre" or not g.get("start_utc"):
+            return None
+        m = (jst(g["start_utc"]) - now).total_seconds() / 60
+        return m if 0 < m <= win else None
+    def line(g, m, fav=False):
         home = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "home")
         away = next(t["abbr"] for t in g["teams"] if t["homeAway"] == "away")
         big = next((x for x in g.get("trivia", []) if x.get("big")), None)
         t = g.get("heat") or (big or {}).get("text") or ""
-        lines.append(f"{g['start']}開始(あと{int(mins)}分) {away} @ {home} {'★' * (g.get('expect') or 1)}{' 🔥' if g.get('heat') else ''}")
+        out = [f"{'【推し】' if fav else ''}{g['start']}開始(あと{int(m)}分) {away} @ {home} {'★' * (g.get('expect') or 1)}{' 🔥' if g.get('heat') else ''}"]
         if t:
-            lines.append(f"  └ {t[:60]}{'…' if len(t) > 60 else ''}")
-        state[str(g["id"])] = now.date().isoformat()
-    cut = (now.date() - dt.timedelta(days=10)).isoformat()   # 古い記録は捨てる
-    json.dump({k: v for k, v in state.items() if v >= cut}, open(PRE_STATE, "w"))
-    return "\n".join(lines)
+            out.append(f"  └ {t[:60]}{'…' if len(t) > 60 else ''}")
+        return out
+    common = [(m, g) for g in games for m in [mins_to(g)]
+              if m is not None and str(g["id"]) not in state and (g.get("expect", 0) >= 3 or g.get("heat"))]
+    common.sort(key=lambda x: x[0])
+    common_ids = {g["id"] for _, g in common}
+    owner_fav = (CFG.get("favorites") or [None])[0]
+    texts, fav_sent = {}, set()
+    for key in ["_owner"] + list(channel_keys):
+        fav = owner_fav if key == "_owner" else (None if key == "none" else key.upper())
+        favs = [(m, g) for g in games for m in [mins_to(g)]
+                if fav and m is not None and g["id"] not in common_ids and f"fav:{g['id']}" not in state
+                and fav in {t["abbr"] for t in g["teams"]}]
+        if not common and not favs:
+            continue
+        lines = ["まもなく開始"]
+        for m, g in favs:
+            lines += line(g, m, True)
+            fav_sent.add(g["id"])
+        for m, g in common:
+            lines += line(g, m, fav in {t["abbr"] for t in g["teams"]})
+        texts[key] = "\n".join(lines)
+    today = now.date().isoformat()
+    for _, g in common:
+        state[str(g["id"])] = today
+    for gid in fav_sent:
+        state[f"fav:{gid}"] = today
+    if texts:
+        cut = (now.date() - dt.timedelta(days=10)).isoformat()   # 古い記録は捨てる
+        json.dump({k: v for k, v in state.items() if v >= cut}, open(PRE_STATE, "w"))
+    return texts
 
 
 # ---------- メイン ----------
@@ -1687,6 +1803,57 @@ def send_alerts(today, records):
 EAST = {"ATL", "BOS", "BKN", "CHA", "CHI", "CLE", "DET", "IND", "MIA", "MIL", "NY", "ORL", "PHI", "TOR", "WSH"}
 
 
+WL_BEFORE = {}   # 日付 → その日より前の勝敗 {チーム: [勝, 敗]}
+
+
+def conf_ranks(wl):
+    """カンファレンスごとの順位(勝率順。同じなら勝ち数、チーム名)"""
+    out = {}
+    for conf in (True, False):
+        ts = [t for t in wl if (t in EAST) == conf]
+        ts.sort(key=lambda t: (-(wl[t][0] / max(1, sum(wl[t]))), -wl[t][0], t))
+        for i, t in enumerate(ts, 1):
+            out[t] = i
+    return out
+
+
+def race_label(teams, date):
+    """順位争いの直接対決か。ネタバレを避けるため、前の日の試合は入れない(2日前までの順位で見る)。
+    同じカンファレンスで、両方が5〜8位(6位=プレーオフ直行の境目)か9〜12位(10位=プレーインの境目)、差がrace_gb試合以内"""
+    if date.month >= 7 or date.strftime("%m-%d") < R.get("race_from", "02-01"):
+        return None
+    keys = sorted(k for k in WL_BEFORE if k <= (date - dt.timedelta(days=1)).isoformat())
+    if not keys:
+        return None
+    wl = WL_BEFORE[keys[-1]]
+    a, b = (t["abbr"] for t in teams)
+    if a not in wl or b not in wl or (a in EAST) != (b in EAST):
+        return None
+    rk = conf_ranks(wl)
+    gb = abs((wl[a][0] - wl[a][1]) - (wl[b][0] - wl[b][1])) / 2
+    if gb > R.get("race_gb", 3):
+        return None
+    if all(5 <= rk[t] <= 8 for t in (a, b)):
+        return "プレーオフ直行(6位)争いの直接対決"
+    if all(9 <= rk[t] <= 12 for t in (a, b)):
+        return "プレーイン(10位)争いの直接対決"
+    return None
+
+
+def context_items(comp, teams, date):
+    """試合の重み(NBAカップの勝ち抜け戦・順位争い)。試合前にわかることだけ"""
+    out = []
+    stg = cup_stage(comp)
+    if stg == "final":
+        out.append({"txt": "NBAカップ決勝", "pts": P.get("cup_final", 10)})
+    elif stg in ("qf", "sf"):
+        out.append({"txt": f"NBAカップ{CUP_JA[stg]}(負けたら終わり)", "pts": P.get("cup_knockout", 5)})
+    rl = race_label(teams, date)
+    if rl:
+        out.append({"txt": rl, "pts": P.get("race", 5)})
+    return out
+
+
 def standings_snapshots(today):
     """エース表の並び用の順位(レギュラーシーズンの勝敗)。今日の試合は入れない(順位の動きで勝敗がわかるので)。
     昨日まで(asof)と、おとといまで(prev)の2つを返す。推しの試合を隠している間はアプリが prev を使う"""
@@ -1694,6 +1861,7 @@ def standings_snapshots(today):
     wl, snaps = {}, {}
     d = start
     while d < today:
+        WL_BEFORE[d.isoformat()] = {k: list(v) for k, v in wl.items()}   # その日の試合より前の勝敗(順位争いの判定用)
         try:
             evs = events_for_jst_date(d)
         except Exception:
@@ -1701,6 +1869,8 @@ def standings_snapshots(today):
         for e, _ in evs:
             comp = e["competitions"][0]
             if SEASON_TYPE.get(e.get("season", {}).get("type")) != "regular" or not comp["status"]["type"].get("completed"):
+                continue
+            if cup_stage(comp) == "final":   # カップ決勝は順位に数えない
                 continue
             for c in comp["competitors"]:
                 ab = c["team"]["abbreviation"]
@@ -1865,6 +2035,10 @@ def main():
     today = now.date()
     season, strong = load_league()
     archive = {r["id"]: r for r in load_json(ARCHIVE, [])}
+    try:   # 順位(エース表の並び+順位争いの判定)。採点より先に作る
+        STAND = standings_snapshots(today)
+    except Exception:
+        STAND = {}
 
     if "--backfill" in sys.argv:
         i = sys.argv.index("--backfill")
@@ -1909,9 +2083,9 @@ def main():
     for back in (0, 1, 2):
         d = today - dt.timedelta(days=back)
         evs = [x for x in events_for_jst_date(d)
-               if SEASON_TYPE.get(x[0].get("season", {}).get("type")) != "pre"]
+               if game_type(x[0]) != "pre"]
         with ThreadPoolExecutor(6) as ex:
-            res = list(ex.map(lambda es: build_game(es[0], es[1], season, strong, roster_cache), evs))
+            res = [x for x in ex.map(lambda es: build_game_safe(es[0], es[1], season, strong, roster_cache), evs) if x[0]]
         for g, rec in res:
             if rec:
                 old = archive.get(rec["id"], {})
@@ -1929,9 +2103,9 @@ def main():
         d = today + dt.timedelta(days=ahead)
         try:
             evs = [x for x in events_for_jst_date(d)
-                   if SEASON_TYPE.get(x[0].get("season", {}).get("type")) != "pre"]
+                   if game_type(x[0]) != "pre"]
             with ThreadPoolExecutor(6) as ex:
-                res = list(ex.map(lambda es: build_game(es[0], es[1], season, strong, roster_cache), evs))
+                res = [x for x in ex.map(lambda es: build_game_safe(es[0], es[1], season, strong, roster_cache), evs) if x[0]]
         except Exception:
             res = []
         future.append({"date": d.isoformat(), "games": [g for g, _ in res]})
@@ -1972,7 +2146,7 @@ def main():
     # 画面用:全試合の「最終点」だけ渡す。推しを除いたランク付けは各自のスマホで計算する
     #(中身の内訳やスコアは渡さない)
     # 展開の点・終わった時刻は渡さない(データを覗くと「接戦だった」「延長があった」がわかってしまうので)
-    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "start_utc", "legend")}
+    pub = [{k: r.get(k) for k in ("id", "date", "season", "type", "home", "away", "start_utc", "legend", "cup")}
            | {"score": fs(r), "hall_ok": hall_ok(r)} for r in records]
     tinfo = team_info()
     try:   # 画面(index.html)の版。古い画面のままのスマホに読み込み直してもらうため
@@ -1982,7 +2156,7 @@ def main():
     data = {"generated_at": now.isoformat(timespec="minutes"), "today": today.isoformat(), "app_ver": app_ver,
             "owner_favorites": CFG["favorites"], "fav_hide_hours": CFG.get("favorite_hide_hours", 24),
             "fav_hide_pad_hours": CFG.get("favorite_hide_pad_hours", 3),
-            "standings": standings_snapshots(today),
+            "standings": STAND,
             "tier_names": CFG["tier_names"], "tier_desc": CFG["tier_desc"], "tiers": T, "rules": R, "points": P, "moment": CFG["moment"],
             "prev": prev_records if isinstance(prev_records, dict) else {},
             "teams": {k: v["full"] for k, v in sorted(tinfo.items())},
@@ -2002,9 +2176,20 @@ def main():
 
     # 通知:持ち主用(config の favorites)
     # 試合前の通知(定期の回だけ送る。送るかどうかは workflow が prenotify.txt の中身で決める)
-    pre = prenotify_text(now, days[0]["games"] + (future[0]["games"] if future else [])) if "--prenotify" in sys.argv else ""
-    open(os.path.join(HERE, "prenotify.txt"), "w").write(pre)
-    open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch, tomorrow=future[0]["games"] if future else None))
+    ch_keys = ["none"] + [k.lower() for k in sorted(tinfo)]
+    pre = prenotify_build(now, days[0]["games"] + (future[0]["games"] if future else []), ch_keys) if "--prenotify" in sys.argv else {}
+    json.dump(pre, open(os.path.join(HERE, "prenotify.json"), "w"), ensure_ascii=False)
+    # 定期通知:送る時間なら notify_now を置く(workflow はこのファイルがあるときだけ送る)
+    due = notify_due(now) if "--notify-auto" in sys.argv else None
+    slot = due[0] if due else None
+    flag = os.path.join(HERE, "notify_now")
+    if due or "--notify-now" in sys.argv:
+        open(flag, "w").write(due[1] if due else "manual")
+        if due:
+            mark_notified(due[1])
+    elif os.path.exists(flag):
+        os.remove(flag)
+    open(os.path.join(HERE, "notify.txt"), "w").write(notify_text(now, days[0]["games"], arch, tomorrow=future[0]["games"] if future else None, slot=slot))
     # Bluesky の毎日の速報(持ち主の推しは24時間隠したまま)。投稿は bsky_daily.py
     json.dump(bsky_daily(today, days[0]["games"], arch), open(os.path.join(HERE, "bsky_daily.json"), "w"), ensure_ascii=False)
     # 通知:みんな用。推しチームごとのチャンネル(推しなし + 30チーム)
@@ -2016,9 +2201,11 @@ def main():
     for fav, recs in zip(fav_list, jobs):
         favs = [fav] if fav else []
         channels[(fav or "none").lower()] = notify_text(now, days[0]["games"], {r["id"]: r for r in recs}, favs,
-                                                         tomorrow=future[0]["games"] if future else None)
+                                                         tomorrow=future[0]["games"] if future else None, slot=slot)
     json.dump(channels, open(os.path.join(HERE, "notify_channels.json"), "w"), ensure_ascii=False)
     print(f"OK: {sum(len(d['games']) for d in days)} recent games, archive {len(records)} games")
+    if any(STALE.values()):
+        print("取れずに前回の分で埋めた: " + ", ".join(f"{k}={v}" for k, v in STALE.items()))
     print("buzz signals collected (counts only): " + ", ".join(f"{k}={v}" for k, v in STATS.items()))
 
 

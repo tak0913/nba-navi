@@ -4,16 +4,17 @@ on:
   schedule:
     - cron: "7,27,47 23,0-5 * * *"    # 日本時間 8時〜15時(試合が終わる時間帯)は20分おき:データ更新
     - cron: "17 6-22 * * *"            # それ以外は毎時:データ更新
-    - cron: "40 23,2,5,8,11 * * *"    # 日本時間 8:40/11:40/14:40/17:40/20:40:更新+通知(9・12・15・18・21時ごろ届く)
+    - cron: "40 23,2,5,8,11 * * *"    # 日本時間 8:40/11:40/14:40/17:40/20:40:更新(通知の時間の少し前にも回す)
+    # 通知(9・12・15・18・21時)は「その時間の通知をまだ送っていなければ、8:40などを過ぎて最初に動いた回が送る」。
+    # GitHubの定期実行は遅れたり抜けたりするので、特定の回に頼らない(notify_state.json で同じ時間に2回送らない)
   push:                               # アプリやスクリプト・設定を直したらすぐ反映
     branches: [main]
     paths:
       - "docs/**"
       - "scripts/*.py"
-      - "scripts/config.json"
-      - "scripts/stars.json"
-      - "scripts/upgrades.json"
-      - "scripts/rivalries.json"
+      - "scripts/*.json"        # 設定・エース表・小話(events/receptions/names_ja/coach_ties)・昨季の点数など。ボットの自動コミットでは動かない
+      - "scripts/*.js"
+      - "scripts/tests/**"
       - ".github/workflows/**"
   workflow_dispatch:
     inputs:
@@ -40,15 +41,15 @@ jobs:
     environment:
       name: github-pages
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       # ネタバレ防止:スクリプトは試合の中身をログに出さない
       # 取ったESPNのデータと前回の記録を保存・使い回す(毎時の取り直しを軽くし、取れなかった試合は前回の記録で埋める)
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             scripts/cache
@@ -66,11 +67,13 @@ jobs:
         run: cd scripts && python tests/run_tests.py
 
       - name: データ収集と採点
+        id: collect
         run: |
           cd scripts
           EXTRA=""
           if [ "${{ github.event.inputs.remeasure }}" = "yes" ]; then EXTRA="--remeasure"; fi
-          if [ "${{ github.event_name }}" = "schedule" ]; then EXTRA="$EXTRA --prenotify"; fi
+          if [ "${{ github.event_name }}" = "schedule" ]; then EXTRA="$EXTRA --prenotify --notify-auto"; fi
+          if [ "${{ github.event.inputs.notify }}" = "yes" ]; then EXTRA="$EXTRA --notify-now"; fi
           OUT_DIR=../docs python collect.py --rebuild $EXTRA
 
       - name: 公式Bluesky(月末の決選投票・毎日の速報)
@@ -83,7 +86,7 @@ jobs:
           python bsky_daily.py || echo "bsky_daily.py failed (続行)"
 
       - name: 通知(ntfy)
-        if: github.event.schedule == '40 23,2,5,8,11 * * *' || github.event.inputs.notify == 'yes'
+        if: hashFiles('scripts/notify_now') != ''
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
@@ -94,7 +97,7 @@ jobs:
             --data-binary @scripts/notify.txt "https://ntfy.sh/$NTFY_TOPIC"
 
       - name: 通知(みんな用:推しチーム別チャンネル)
-        if: github.event.schedule == '40 23,2,5,8,11 * * *' || github.event.inputs.notify == 'yes'
+        if: hashFiles('scripts/notify_now') != ''
         run: |
           python3 - <<'PY'
           import json, time, urllib.request
@@ -112,26 +115,28 @@ jobs:
           print(f"sent {ok}/{len(ch)} channels")
           PY
 
-      - name: 試合前の通知(🔥・★3の試合が始まる前。持ち主+みんなのチャンネル全部)
+      - name: 試合前の通知(🔥・★3の試合+そのチャンネルの推しの試合が始まる前)
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
-          if [ ! -s scripts/prenotify.txt ]; then exit 0; fi
+          if [ ! -s scripts/prenotify.json ]; then exit 0; fi
           python3 - <<'PY'
           import json, os, time, urllib.request
           cfg = json.load(open("scripts/config.json"))
-          text = open("scripts/prenotify.txt").read().encode()
-          topics = [os.environ.get("NTFY_TOPIC") or ""] + [cfg["public_topic_prefix"] + k for k in json.load(open("scripts/notify_channels.json"))]
+          texts = json.load(open("scripts/prenotify.json"))
           ok = 0
-          for t in [t for t in topics if t]:
-              req = urllib.request.Request("https://ntfy.sh/" + t, data=text,
+          for key, text in texts.items():
+              t = (os.environ.get("NTFY_TOPIC") or "") if key == "_owner" else cfg["public_topic_prefix"] + key
+              if not t:
+                  continue
+              req = urllib.request.Request("https://ntfy.sh/" + t, data=text.encode(),
                     headers={"Title": "NBA Navi(まもなく開始)", "Tags": "fire", "Click": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"})
               try:
                   urllib.request.urlopen(req, timeout=20); ok += 1
               except Exception as e:
                   print("failed:", type(e).__name__)
               time.sleep(1)
-          print(f"prenotify sent {ok}")
+          print(f"prenotify sent {ok}/{len(texts)}")
           PY
 
       - name: 持ち主への知らせ(測定の見張り・エース表の見直し)
@@ -155,6 +160,7 @@ jobs:
           git add scripts/suggestions.json 2>/dev/null || true
           git add scripts/bsky_state.json 2>/dev/null || true
           git add scripts/prenotify_state.json 2>/dev/null || true
+          git add scripts/notify_state.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
           # 別の回と同時に記録を書いてぶつかったときは、この回の記録を優先して入れ直す(何回か試す)
@@ -165,8 +171,12 @@ jobs:
           done
           exit 1
 
+      # 記録の保存に失敗しても、採点まで終わっていれば画面は新しくする
       - uses: actions/configure-pages@v5
+        if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
         with:
           path: docs
       - uses: actions/deploy-pages@v4
+        if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
