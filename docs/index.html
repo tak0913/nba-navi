@@ -238,7 +238,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-05e";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-05f";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -306,9 +306,13 @@ function favNote(g){
     :`<div class="favnote">🔒 推しの試合は、終わってから24時間ランクをかくすよ</div>`;
 }
 function upLine(r){return r.up_from&&r.up_from!==r.tier?`<div class="meta" style="color:var(--ss)">${r.up_from}→${r.tier}(${esc(r.story)})</div>`:""}
+// データの更新(GitHubの定期実行)は遅れることがあるので、開始時刻を過ぎていたら「始まってる」とみなす
+function pastStart(g){return g.state==="pre"&&g.start_utc&&Date.now()>=Date.parse(g.start_utc)}
+function isPre(g){return g.state==="pre"&&!g.completed&&!pastStart(g)}
 function stateLabel(g){
   if(g.completed) return `<span class="state">終了</span>`;
   if(g.state==="in") return `<span class="state in">試合中</span>`;
+  if(pastStart(g)) return `<span class="state in">試合中<small style="display:block;font-size:9px;color:var(--sub)">更新待ち</small></span>`;
   return `<span class="state">${g.start} 開始</span>`;
 }
 function quick(g){
@@ -342,7 +346,7 @@ function renderTrivia(){
   const tabs=`<div class="days five">${days.map((d,i)=>{const n=d.games.filter(has).length;
     return `<button data-act="day" data-i="${i}" class="${i===dayIdx?"on":""}"><span>${DAY_NAMES[i-base+2]||""}</span>${md(d.date)}${n?`<small class="tvn">${n}</small>`:""}</button>`}).join("")}</div>`;
   // その日の中は:まだ始まっていない試合が先(🔥が先頭)、始まった・終わった試合は後ろ
-  const started=g=>g.completed||g.state==="in";
+  const started=g=>g.completed||g.state==="in"||pastStart(g);
   const gs=days[dayIdx].games.filter(has).sort((x,y)=>(started(x)-started(y))||(!!y.heat-!!x.heat)||(y.trivia.length-x.trivia.length)||String(x.start).localeCompare(String(y.start)));
   const card=g=>{const [h,a]=g.teams;
     return `<div class="tvcard${started(g)?" done":""}" style="--tc:${tcol(h.abbr)}">
@@ -507,7 +511,7 @@ function gameCard(g){
   return `<div class="card${tc?" home":""}" id="g_${g.id}"${tc?` style="--tc:${tc}"`:""}>
     <div class="head" data-act="toggle" data-id="${g.id}">${badge(g)}
       <div class="match"><div class="teams">${esc(a.abbr)}<span class="at">@</span><span class="hm">${esc(h.abbr)}</span><span class="hmtag">HOME</span></div>
-      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${cupTag(g.cup)}${g.stale?`<div class="stale">⚠ ${g.stale==="nodata"?"今回はこの試合の情報を取れなかった(次の更新で直るはず)":"今回は取れなかったので、前回の欠場情報を出してるよ"}</div>`:""}${!g.completed?previewHTML(g):""}${g.state==="pre"&&g.start_utc?`<div><button class="cal" data-act="cal" data-id="${g.id}">📅 カレンダーに入れる</button></div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
+      <div class="meta">${g.start} 開始・${esc(g.venue)}</div>${cupTag(g.cup)}${g.stale?`<div class="stale">⚠ ${g.stale==="nodata"?"今回はこの試合の情報を取れなかった(次の更新で直るはず)":"今回は取れなかったので、前回の欠場情報を出してるよ"}</div>`:""}${!g.completed?previewHTML(g):""}${isPre(g)&&g.start_utc?`<div><button class="cal" data-act="cal" data-id="${g.id}">📅 カレンダーに入れる</button></div>`:""}${tierLine(g)}</div>${stateLabel(g)}</div>
     ${quick(g)}${triviaHTML(g)}${rev}
     <button class="more" data-act="toggle" data-id="${g.id}"><span class="o">👥 ロスター・チームの強みを見る</span><span class="c">閉じる</span> <span class="chev">▾</span></button>
     <div class="body"><h3>ロスター</h3><div class="rosters">${roster(g,a)}${roster(g,h)}</div>
@@ -539,7 +543,7 @@ function renderDay(){
 }
 // 「この日はこの1本」:まだ始まっていない試合から、試合前の期待度で1つ選ぶ(終わった試合から選ぶと「一番面白かった」のヒントになるので選ばない)
 function pickOne(gs){
-  const up=gs.filter(g=>g.state==="pre"&&!g.completed);
+  const up=gs.filter(isPre);
   if(up.length<2) return "";
   const bigs=g=>(g.trivia||[]).filter(x=>x.big).length;
   const g=up.slice().sort((a,b)=>(b.expect||0)-(a.expect||0)||(!!b.heat-!!a.heat)||bigs(b)-bigs(a)||String(a.start).localeCompare(String(b.start)))[0];
