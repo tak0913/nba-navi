@@ -389,8 +389,12 @@ def score_flow(plays, home_id):
         flags["late_upset"] = True
     elif surged["h"] or surged["a"]:
         flags["late_surge"] = True
-    pts = sum(P[k] for k, v in flags.items() if v and not k.startswith("_"))
-    return min(P["flow_cap"], pts), flags
+    # ブザービーターは上限の外で足す(2026-11-06 案A)。ブザービーターが出る試合はたいてい「クラッチ」「最後までもつれた」も
+    # 付いていて上限50に届くので、上限の中だとゲームウィナーが実質0点になっていた(昨季は33試合中17試合)
+    out_cap = {"buzzer"} if R.get("buzzer_outside_cap", True) else set()
+    pts = sum(P[k] for k, v in flags.items() if v and not k.startswith("_") and k not in out_cap)
+    extra = sum(P[k] for k in out_cap if flags.get(k))
+    return min(P["flow_cap"], pts) + extra, flags
 
 
 def garbage_points(plays):
@@ -622,7 +626,8 @@ def score_record(e, start, summary, season, strong, label=None):
     # 結果を開いた人に見せる計算の内訳(ネタバレそのものなので、普段のデータには入れず別ファイルにする)
     bd = {
         "flow": {"pts": flow, "cap": P["flow_cap"],
-                 "items": [{"txt": FLOW_JA[k], "pts": P[k]} for k, v in flags.items() if v and k in FLOW_JA]},
+                 "items": [{"txt": FLOW_JA[k], "pts": P[k], **({"out": True} if k == "buzzer" and R.get("buzzer_outside_cap", True) else {})}
+                           for k, v in flags.items() if v and k in FLOW_JA]},
         "stars": {"pts": stars, "cap": P["star_cap"],
                   "items": [x for x in sdet if x["k"] == "star"]
                            + ([{"k": "moment", "pts": P["star_moment"]}] if moment_star else [])},

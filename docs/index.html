@@ -238,7 +238,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-05g";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-06a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -403,6 +403,14 @@ function bdRow(title,pts,cap,lines){
   const body=lines.length?`<ul>${lines.map(x=>`<li>${x}</li>`).join("")}</ul>`:`<div class="d" style="padding:4px 0 6px 14px">なし</div>`;
   return `<details><summary><span>${title}</span><b>${sgn(pts)}${cap?`<small> / ${cap}</small>`:""}</b></summary>${body}</details>`;
 }
+// 展開:ブザービーターは上限の外(out)。上限で止まった分と、上限の外で足した分を書く
+function flowLines(f){
+  const lines=f.items.map(x=>`${x.txt} ${sgn(x.pts)}${x.out?"(上限の外)":""}`);
+  const inSum=f.items.filter(x=>!x.out).reduce((n,x)=>n+x.pts,0), outSum=f.items.filter(x=>x.out).reduce((n,x)=>n+x.pts,0);
+  if(f.cap&&inSum>f.cap) lines.push(`ブザービーター以外の合計${inSum}点は、上限の${f.cap}点で止まる`);
+  if(outSum) lines.push("ブザービーター(ゲームウィナー)は上限とは別に足す");
+  return lines;
+}
 function clampNote(sec,lines){
   const sum=sec.items.filter(x=>!x.ctx).reduce((n,x)=>n+x.pts,0);   // ctx=試合の重み(カップ・順位争い)は上限とは別
   if(sum<0) lines.push(`合計${sum}点だけど、0点より下にはならない`);
@@ -422,7 +430,7 @@ function renderBd(id,b){
   const pc=v=>v==null?"まだ":`${Math.round(v*100)}%`;
   const bz=b.buzz.d||{};
   const rows=[
-    bdRow("① 展開",b.flow.pts,b.flow.cap,b.flow.items.map(x=>`${x.txt} ${sgn(x.pts)}`)),
+    bdRow("① 展開",b.flow.pts,b.flow.cap,flowLines(b.flow)),
     bdRow("② スターの活躍",b.stars.pts,b.stars.cap,st),
     bdRow("③ カードの格",b.card.pts,b.card.cap,clampNote(b.card,b.card.items.map(x=>`${esc(x.txt)} ${sgn(x.pts)}${x.ctx?"(上限とは別)":""}`))),
     bdRow("④ チーム",b.team.pts,b.team.cap,clampNote(b.team,b.team.items.map(x=>`${esc(x.txt)} ${sgn(x.pts)}`))),
