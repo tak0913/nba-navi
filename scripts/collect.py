@@ -974,6 +974,36 @@ def career_before(pid, season):
     return CAREER[key]
 
 
+CAREER_REG_BUDGET = [15]   # 1回の更新で、通算得点(レギュラーシーズンだけ)を新しく取りに行く選手の数
+
+
+def career_reg_pts(pid, season):
+    """今季より前のレギュラーシーズンの通算得点(公式の「通算得点」と同じ数え方。プレーオフ・プレーイン・カップ決勝は入らない)。
+    ESPNの選手成績のページ(シーズンごとの合計)から取る。試合ごとの記録(gamelog)は試合の抜けやプレーインが混ざって
+    公式と合わないので使わない(LeBron Jamesで約660点ずれた)。取れなければ None(記録目前の小話は出さない)"""
+    path = _cache_path("creg2", f"{pid}_{season}")
+    if os.path.exists(path):
+        return _cache_load(path).get("pts")
+    if CAREER_REG_BUDGET[0] <= 0:
+        return None
+    CAREER_REG_BUDGET[0] -= 1
+    label = f"{season - 1}-{str(season)[-2:]}"   # 2027 → "2026-27"
+    try:
+        d = get(f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}/stats")
+        t = next(x for x in d.get("categories", []) if x.get("name") == "totals")
+        i = t["names"].index("points")
+        total = int(float(str(t["totals"][i]).replace(",", "")))
+        now = sum(int(float(str(r["stats"][i]).replace(",", ""))) for r in t.get("statistics", [])
+                  if (r.get("season") or {}).get("displayName") == label)
+        later = [r for r in t.get("statistics", []) if (r.get("season") or {}).get("year", 0) > season]
+        if later:
+            return None
+    except Exception:
+        return None
+    _cache_save(path, {"pts": total - now})
+    return total - now
+
+
 def faced_since_join(pid, ab, opp, season):
     """今のチーム(ab)に来てから、今季より前に古巣(opp)と当たったことがあるか。ESPNの選手の試合記録で確かめる。
     今季より前の記録は変わらないので保存して使い回す。確かめられなかったら「当たった」扱い(間違った小話を出さない)"""
@@ -1264,9 +1294,9 @@ def add_trivia(games_days, records, roster_cache):
                 nm = away_names.get(norm(rc["player"]))
                 if rc["arena"] == home and nm and norm(nm) not in outs.get(away, set()):
                     if rc["type"] == "boo":
-                        items.append({"kind": "ブーイング", "text": f"{short_name(nm)}はこの会場では毎回ブーイング({rc['why']})", "big": True, "rank": 1, "heat": True})
+                        items.append({"kind": "ブーイング", "text": f"{short_name(nm)}はこの会場でブーイングを浴びてきた({rc['why']})", "big": True, "rank": 1, "heat": True})
                     else:
-                        items.append({"kind": "大歓迎", "text": f"{short_name(nm)}がここに帰ってくると毎回スタンディングオベーション({rc['why']})", "big": True, "rank": 1, "heat": True})
+                        items.append({"kind": "大歓迎", "text": f"{short_name(nm)}はここに帰ってくると大歓迎されてきた({rc['why']})", "big": True, "rank": 1, "heat": True})
             for ab, tid in ab_ids.items():
                 opp = next(x for x in ab_ids if x != ab)
                 hist_games = [r for r in before if ab in (r["home"], r["away"]) and ab in (r.get("lineup") or {})]
@@ -1276,32 +1306,40 @@ def add_trivia(games_days, records, roster_cache):
                     is_star = norm(nm) in star_set
                     jp = (a.get("birthPlace") or {}).get("country") == "Japan"
                     if jp and not out:
-                        items.append({"kind": "日本人選手", "text": f"{JP_NAMES.get(nm, nm)}({ab})" + ("のチームの試合" if g.get("completed") else "が出場予定"),
+                        items.append({"kind": "日本人選手", "text": f"{JP_NAMES.get(nm, nm)}({ab})のチームの試合",
                                       "big": True, "rank": 5})
                     dob = (a.get("dateOfBirth") or "")[:10]
                     if dob[5:] == us and not out and (is_star or jp):
-                        age = int(gd[:4]) - int(dob[:4]) - (1 if gd[5:] < dob[5:] else 0)
+                        age = int(us_full[:4]) - int(dob[:4])   # アメリカの日付が誕生日の日なので、その年で数える
                         items.append({"kind": "誕生日", "text": f"{short_name(nm)}の{age}歳の誕生日", "big": False, "rank": 40})
                     if not (is_star or jp) or out:
                         continue
                     c = CAREER.get(f"{pid}_{season_now}")
                     season_pts = [lu["pts"][pid][1] for r in before for lu in (r.get("lineup") or {}).values()
                                   if pid in (lu.get("pts") or {})]
+                    # 通算得点はレギュラーシーズンだけ(プレーオフ・NBAカップ決勝は公式の通算に入らない)
+                    reg_pts = [lu["pts"][pid][1] for r in before if r.get("type") == "regular" and r.get("cup") != "final"
+                               for lu in (r.get("lineup") or {}).values() if pid in (lu.get("pts") or {})]
                     # 長期離脱からの復帰(チームの直近8試合以上に出ていない主力が、出場予定に戻ってきた)
-                    miss = 0
+                    # 出ていなかった試合が全部「欠場」扱い(ケガ人リスト・出場なし)のときだけ。
+                    # ベンチで使われなかっただけの試合を「離脱」と言わないように。今日も出場微妙なら出さない
+                    miss, all_out = 0, True
                     for r in reversed(hist_games):
                         if pid in r["lineup"][ab].get("pl", []):
                             break
                         miss += 1
-                    if miss >= 8 and len(hist_games) > miss:
+                        all_out = all_out and norm(nm) in set(r["lineup"][ab].get("out", []))
+                    st_now = next((p.get("status") for p in g["rosters"].get(ab, []) if norm(p["name"]) == norm(nm)), "")
+                    if miss >= 8 and len(hist_games) > miss and all_out and st_now in ("", "出場濃厚"):
                         items.append({"kind": "復帰", "text": f"{short_name(nm)}が{miss}試合ぶりの復帰見込み", "big": True, "rank": 2})
                     if c:
                         # 記録目前(通算得点のキリのいい数字まであと少し)
-                        tot = c.get("pts", 0) + sum(season_pts)
-                        if tot >= 5000 and "pts" in c:
+                        base_reg = career_reg_pts(pid, season_now)
+                        tot = (base_reg or 0) + sum(reg_pts)
+                        if base_reg is not None and tot >= 5000:
                             goal = _milestone(tot)
                             left = goal - tot
-                            avg = (sum(season_pts) / len(season_pts)) if season_pts else (c["pts"] / max(1, c["gp"]))
+                            avg = (sum(reg_pts) / len(reg_pts)) if reg_pts else (c["pts"] / max(1, c["gp"]))
                             if avg > 0 and left <= 1.3 * avg:
                                 items.append({"kind": "記録目前", "text": f"{short_name(nm)}、通算{goal:,}点まであと{left}点。今日届くかも",
                                               "big": True, "rank": 3})

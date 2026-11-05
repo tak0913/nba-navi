@@ -1,5 +1,5 @@
 {
-  "_note": "その会場での迎えられ方。boo=毎回ブーイング、ovation=帰ってくるとスタンディングオベーション。arena=その会場のチーム。選手が今その会場のチームにいない(アウェイで乗り込む)試合だけ出す。よく知られているものだけ。Claudeが案を出し、ユーザーが決める",
+  "_note": "その会場での迎えられ方。boo=ブーイングを浴びてきた、ovation=帰ってくると大歓迎されてきた(実際の報道で確かめたものだけ)。arena=その会場のチーム。選手が今その会場のチームにいない(アウェイで乗り込む)試合だけ出す。よく知られているものだけ。Claudeが案を出し、ユーザーが決める",
   "items": [
     {
       "player": "James Harden",
@@ -23,7 +23,7 @@
       "player": "Kevin Durant",
       "arena": "OKC",
       "type": "boo",
-      "why": "2016年にウォリアーズへ移籍して以来、今も敵扱い"
+      "why": "2016年にウォリアーズへ移籍してから"
     },
     {
       "player": "Kyrie Irving",
@@ -35,7 +35,7 @@
       "player": "Luka Doncic",
       "arena": "DAL",
       "type": "ovation",
-      "why": "突然のトレードで去った、マブスファンの永遠の英雄"
+      "why": "突然のトレードで去った元エース。初めての凱旋ではトリビュート映像と大歓声"
     },
     {
       "player": "Anthony Davis",
@@ -53,7 +53,7 @@
       "player": "Paul George",
       "arena": "LAC",
       "type": "boo",
-      "why": "クリッパーズを出てシクサーズへ移った"
+      "why": "クリッパーズを出てシクサーズへ移った。初めての凱旋では試合中ずっとブーイング"
     },
     {
       "player": "Kawhi Leonard",
@@ -65,7 +65,7 @@
       "player": "Russell Westbrook",
       "arena": "OKC",
       "type": "ovation",
-      "why": "Thunderで11年戦ったMVP。帰ってくるたびに大歓声"
+      "why": "Thunderで11年戦ったMVP"
     },
     {
       "player": "Kawhi Leonard",
@@ -77,7 +77,7 @@
       "player": "DeMar DeRozan",
       "arena": "TOR",
       "type": "ovation",
-      "why": "Raptorsの顔だった9年間。今も一番愛される選手の一人"
+      "why": "Raptorsの顔だった9年間"
     },
     {
       "player": "Pascal Siakam",
@@ -101,13 +101,13 @@
       "player": "Karl-Anthony Towns",
       "arena": "MIN",
       "type": "ovation",
-      "why": "Timberwolvesで9年、チームの顔だった"
+      "why": "Timberwolvesで9年、チームの顔だった。初めての凱旋ではトリビュート映像とスタンディングオベーション"
     },
     {
       "player": "Jalen Brunson",
       "arena": "DAL",
       "type": "boo",
-      "why": "2022年にMavsを出てKnicksへ。それ以来ダラスでは毎回ブーイング"
+      "why": "2022年にMavsを出てKnicksへ移った"
     }
   ]
 }
