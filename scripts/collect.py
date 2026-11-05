@@ -974,6 +974,29 @@ def career_before(pid, season):
     return CAREER[key]
 
 
+def faced_since_join(pid, ab, opp, season):
+    """今のチーム(ab)に来てから、今季より前に古巣(opp)と当たったことがあるか。ESPNの選手の試合記録で確かめる。
+    今季より前の記録は変わらないので保存して使い回す。確かめられなかったら「当たった」扱い(間違った小話を出さない)"""
+    path = _cache_path("faced", f"{pid}_{ab}_{opp}_{season}")
+    if os.path.exists(path):
+        return bool(_cache_load(path).get("faced"))
+    url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}/gamelog"
+    faced = False
+    try:
+        for y in range(season - 1, season - 16, -1):   # 新しいシーズンからさかのぼる。そのチームにいなかったシーズンで止める
+            evs = (get(f"{url}?season={y}").get("events") or {}).values()
+            mine = [e for e in evs if (e.get("team") or {}).get("abbreviation") == ab]
+            if any((e.get("opponent") or {}).get("abbreviation") == opp for e in mine):
+                faced = True
+                break
+            if len(mine) < len(list(evs)) or not mine:   # このシーズンの途中で来た(か、いなかった)ので、これより前はない
+                break
+    except Exception:
+        return True
+    _cache_save(path, {"faced": faced})
+    return faced
+
+
 def load_careers(records, limit, first=()):
     """キャリアハイ・記録目前・古巣対決に必要な選手の過去の成績を集める。1回の更新で limit 人まで。
     first = 先に集める選手(エース表の選手・日本人選手)。ほかは25点以上取った試合がある選手"""
@@ -1300,6 +1323,11 @@ def add_trivia(games_days, records, roster_cache):
                             last_other = [x for x in stints if x[0] != ab]
                             homecoming = bool(last_other) and last_other[-1][0] == opp and \
                                 not any(opp in (r["home"], r["away"]) for r in hist_games)
+                            # 去年から今のチームにいる選手は、去年までに古巣ともう当たっていないか実際の試合で確かめる
+                            # (今季の記録だけ見て「移籍後はじめて」と出していた。11/8 Jalen Green・11/5 Jimmy Butler の誤り)
+                            pre = c.get("teams", [])
+                            if homecoming and pre and pre[-1][0] == ab:
+                                homecoming = not faced_since_join(pid, ab, opp, season_now)
                             jn = team_ja.get(opp, opp)
                             if homecoming and norm(nm) not in ev_players:   # 「元◯◯」だけの小話はみんな知ってるので出さない。移籍後はじめての古巣戦だけ
                                 items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦", "big": True, "rank": 1, "heat": True})
