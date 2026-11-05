@@ -238,7 +238,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-05f";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-05g";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -433,7 +433,7 @@ function renderBd(id,b){
   ].join("");
   return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div>${b.guide?`<div class="guide">▶ ${esc(b.guide)}</div>`:""}<div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
     ${rateBox(id,b.votes||{})}
-    <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost">投稿する</button></div>`;
+    <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost" data-id="${id}">投稿する</button></div>`;
 }
 // ---- 見た人の「面白かった?」(匿名。同じスマホが押し直したら最後の1回だけ数える) ----
 const RATE_JA={good:"◎ 面白かった",ok:"○ 普通",bad:"△ イマイチ"};
@@ -676,7 +676,16 @@ function renderHelp(){
     <b>Q. 開幕直後のランクが辛い気がする</b><br>開幕から1ヶ月は試合数が少ないので、昨季の試合も比べる相手に混ぜてる。<br>
     <b>Q. データはどこから?</b><br>ESPN、Googleニュース、YouTubeなど。1時間ごとに自動更新。`)}`;
 }
-let postKind="rivalry", postHeat="hot";
+let postKind="rivalry", postHeat="hot", postGame="";
+// 「ランクのズレ」で選べる試合:ランクが見えている(推しを隠していない)終わった試合の直近3週間。新しい順・日付ごと
+function rankGameLabel(r){return `${md(r.date)} ${r.away}@${r.home}${r.tier&&r.tier!=="-"?`(${r.tier})`:""}`}
+function rankGameOpts(){
+  const from=new Date(Date.parse(DATA.today+"T00:00:00Z")-21*864e5).toISOString().slice(0,10);
+  const list=VISIBLE.filter(r=>r.date>=from||r.id===postGame).sort((a,b)=>b.date.localeCompare(a.date)||String(a.id).localeCompare(String(b.id)));
+  const by={}; list.forEach(r=>(by[r.date]=by[r.date]||[]).push(r));
+  return `<option value="">試合を選ぶ</option>`+Object.entries(by).map(([d,rs])=>`<optgroup label="${md(d)}">${rs.map(r=>
+    `<option value="${r.id}"${r.id===postGame?" selected":""}>${esc(DATA.teams[r.away]||r.away)} @ ${esc(DATA.teams[r.home]||r.home)}${r.tier&&r.tier!=="-"?`(${r.tier})`:""}</option>`).join("")}</optgroup>`).join("");
+}
 function renderPost(){
   const teamOpts=sel=>`<option value="">選ぶ</option>`+Object.entries(DATA.teams).map(([k,n])=>`<option value="${k}"${k===sel?" selected":""}>${esc(n)}</option>`).join("");
   const kinds=[["rivalry","因縁の対決"],["rank","ランクのズレ"],["trivia","小話"],["other","その他"]];
@@ -685,7 +694,8 @@ function renderPost(){
     <label>どんな因縁?</label><div class="seg">${[["hot","今まさに燃えてる"],["tradition","昔からの伝統"]].map(([k,l])=>`<button data-act="heat" data-k="${k}" class="${postHeat===k?"on":""}">${l}</button>`).join("")}</div>
     <div style="color:var(--sub);font-size:12px;margin-top:4px">例:燃えてる=最近のトレードやSNSでのケンカ/伝統=昔の因縁がお約束になったもの</div>
     <label>なぜ因縁なの?(きっかけ・最近の出来事)</label><textarea id="pt" rows="3" maxlength="400"></textarea>`;
-  else if(postKind==="rank") form=`<label>どの試合?(例:11/2 TOR@LAL)</label><input type="text" id="pg" maxlength="40">
+  else if(postKind==="rank") form=`<label>どの試合?</label><select id="pgs">${rankGameOpts()}</select>
+    <input type="text" id="pg" maxlength="40" placeholder="一覧にない試合はここに書いてね(例:10/28 TOR@LAL)" style="margin-top:6px">
     <label>どうズレてた?(見た感想。高すぎ・低すぎ・その理由)</label><textarea id="pt" rows="4" maxlength="400"></textarea>`;
   else if(postKind==="trivia") form=`<label>どの試合?(例:11/10 MIA@BOS。日付だけでもOK)</label><input type="text" id="pg" maxlength="40">
     <label>どんな小話?(例:試合前に◯◯の永久欠番セレモニーがある)</label><textarea id="pt" rows="3" maxlength="400"></textarea>`;
@@ -710,13 +720,16 @@ function sendPost(btn){
   const d={kind:postKind,text:v("pt").trim(),by};
   if(postKind==="rivalry"){d.a=v("pa");d.b=v("pb");d.heat=postHeat;
     if(!d.a||!d.b||d.a===d.b){msg.textContent="チームを2つ選んでね";return}}
-  else if(postKind==="rank"){d.game=v("pg").trim(); if(!d.text){msg.textContent="どうズレてたか書いてね";return}}
+  else if(postKind==="rank"){const gid=v("pgs"), r=gid&&VISIBLE.find(x=>x.id===gid);
+    d.game=r?rankGameLabel(r):v("pg").trim(); if(r) d.gid=r.id;
+    if(!d.game){msg.textContent="どの試合か選んでね";return}
+    if(!d.text){msg.textContent="どうズレてたか書いてね";return}}
   else if(postKind==="trivia"){d.game=v("pg").trim(); if(!d.text){msg.textContent="小話の中身を書いてね";return}}
   else if(!d.text){msg.textContent="内容を書いてね";return}
   store.set("nick",by); btn.disabled=true; msg.textContent="送信中…";
   fetch("https://ntfy.sh/"+DATA.suggest_topic,{method:"POST",body:JSON.stringify(d)})
     .then(r=>{if(!r.ok) throw 0; msg.style.color="var(--b)"; msg.textContent="届いたよ、ありがとう!";
-      ["pt","pg"].forEach(id=>{const e=document.getElementById(id); if(e) e.value=""})})
+      ["pt","pg","pgs"].forEach(id=>{const e=document.getElementById(id); if(e) e.value=""}); postGame=""})
     .catch(()=>{msg.style.color="var(--out)"; msg.textContent="送れなかった。電波のいいところでもう一度試してね"})
     .finally(()=>{btn.disabled=false});
 }
@@ -812,7 +825,7 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="period"){period=el.dataset.k;render();return}
   if(act==="all"){showAll=!showAll;render();return}
   if(act==="ob"){showOb(0);return}
-  if(act==="gopost"){OPEN.clear();view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
+  if(act==="gopost"){if(id){postKind="rank";postGame=id}OPEN.clear();view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
   if(act==="goset"){OPEN.clear();view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
   if(act==="copy"){const t=document.getElementById("topic").textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{el.textContent="コピーした"}).catch(()=>{el.textContent="長押しでコピーしてね"});return}

@@ -52,6 +52,11 @@ def parse(msg, teams):
             return None
     elif d["kind"] == "rank":
         it["game"] = clean(d.get("game"), 40)
+        gid = clean(d.get("gid"), 20)
+        if gid.isdigit():   # 一覧から選んだ試合はidも持つ(どの試合か書き間違いがない)
+            it["gid"] = gid
+        if not it["game"]:
+            return None
         if not it["text"]:
             return None
     elif not it["text"]:
