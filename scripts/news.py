@@ -146,6 +146,148 @@ def trade_ja(team, desc, tinfo, ja):
     return f"{ja.get(team, team)}が " + "/".join(parts), others
 
 
+def trade_sides(team, desc, tinfo):
+    """どのチームが何を手に入れたか。{"CHA": ["Rob Dillingham"], "CHI": ["Buddy Hield"]}
+    trade_ja と同じく、「Acquired …」の文が全部きれいに読めたときだけ。読めなければ None"""
+    acq = [s for s in sentences(desc) if s.startswith("Acquired")]
+    if not acq:
+        return None
+    sides = {}
+    add = lambda ab, txt: sides.setdefault(ab, []).extend(x for x in ja_assets(txt).split("・") if x and x not in sides.get(ab, []))
+    for s in acq:
+        m = ACQ.match(s)
+        if not m:
+            return None
+        what, frm, give = m.group(1), m.group(2), m.group(3)
+        if " in a " in frm or " and " in frm or (give and " in a " in give):
+            return None
+        fab = find_team(frm, tinfo)
+        if not fab:
+            return None
+        add(team, what)
+        if give:
+            add(fab, give)
+        else:
+            sides.setdefault(fab, [])
+    return sides
+
+
+# ---------- 同じトレードの話を1つにまとめる ----------
+def _day(d):
+    try:
+        return dt.date.fromisoformat(d[:10])
+    except Exception:
+        return None
+
+
+def _near(a, b, days):
+    da, db = _day(a), _day(b)
+    return bool(da and db and abs((da - db).days) <= days)
+
+
+PICK_WORDS = ("指名権", "金銭")
+
+
+def _players(sides):
+    return [x for v in (sides or {}).values() for x in v if not any(w in x for w in PICK_WORDS)]
+
+
+def deal_ja(sides, teams_order, ja):
+    """「ブルズ ⇄ ホーネッツ:ブルズ ← Buddy Hield/ホーネッツ ← Rob Dillingham」(通知・古い画面用)"""
+    tm = [t for t in teams_order if t in sides]
+    head = (" ⇄ " if len(tm) == 2 else "・").join(ja.get(t, t) for t in tm)
+    body = "/".join(f"{ja.get(t, t)} ← {'・'.join(sides[t]) or '(原文に書いてない)'}" for t in tm)
+    return f"{head}:{body}"
+
+
+def merge(items, tinfo, ja):
+    """移籍の一覧はチームごとに1行ずつ出る(1つのトレードが2〜3行になる)ので1枚にまとめる。
+    ・確定:日付が1日以内で、チームが2つ以上重なるものは同じトレード
+    ・報道:同じトレードの5日前〜1日後で、チームが2つ重なるか、動いた選手の名前が見出しにあれば、そのトレードの下に付ける
+    ・報道どうし:3日以内でチームが2つ以上重なれば1枚に(新しい見出しが上)
+    戻り値:画面に出す項目(新しい順)。members に元の項目の id"""
+    trades = sorted([i for i in items if i["kind"] == "trade"], key=lambda x: (x["date"], x["id"]))
+    reports = sorted([i for i in items if i["kind"] == "report"], key=lambda x: (x["time"], x["id"]), reverse=True)
+    tw = {x for t in tinfo.values() for x in re.findall(r"[A-Za-z]+", (t.get("city") or "") + " " + (t.get("nick") or ""))}
+    tw |= {"Acquired", "Received", "Waived", "Re", "LA", "L", "A", "Guardians", "Oklahoma", "City"}
+
+    def names(en):   # 原文に出てくる選手名らしきもの(大文字で始まる2語以上。チーム名は除く)
+        out = set()
+        for m in re.finditer(r"[A-Z][\w'’.-]+(?:\s+[A-Z][\w'’.-]+)+", en):
+            ws = [w for w in m.group(0).split() if w.strip(".") not in tw and w not in ("G", "F", "C", "Gs", "Fs", "Cs", "PG", "SG", "SF", "PF")]
+            if len(ws) >= 2:
+                out.add(norm(" ".join(ws)))
+        return out
+
+    def same(a, b):
+        if not _near(a["date"], b["date"], 1):
+            return False
+        share = set(a["teams"]) & set(b["teams"])
+        # チームが2つ重なる、または同じ選手が両方の行に出てきてチームも1つ重なる
+        return len(share) >= 2 or (share and names(a["en"]) & names(b["en"]))
+
+    groups = []
+    for it in trades:
+        for g in groups:
+            if any(same(m, it) for m in g):
+                g.append(it)
+                break
+        else:
+            groups.append([it])
+    out = []
+    for g in groups:
+        teams_order = []
+        for m in g:
+            teams_order += [t for t in m["teams"] if t not in teams_order]
+        sides = {}
+        for m in g:
+            sd = trade_sides(m["teams"][0], m["en"], tinfo)
+            if sd is None:
+                sides = None
+                break
+            for t, v in sd.items():
+                sides.setdefault(t, [])
+                sides[t] += [x for x in v if x not in sides[t]]
+        ens = []
+        for m in g:
+            if m["en"] not in ens:
+                ens.append(m["en"])
+        out.append({"id": "d:" + hashlib.md5("|".join(sorted(m["id"] for m in g)).encode()).hexdigest()[:12],
+                    "kind": "trade", "date": min(m["date"] for m in g), "time": max(m["time"] for m in g),
+                    "teams": teams_order, "sides": sides,
+                    "ja": deal_ja(sides, teams_order, ja) if sides else None,
+                    "en": " / ".join(ens), "ens": ens, "url": None, "reports": [],
+                    "members": [m["id"] for m in g]})
+    rgroups = []
+    for r in reports:
+        deal = None
+        for d in out:
+            if not (_near(r["date"], d["date"], 5) and r["date"] <= (_day(d["date"]) + dt.timedelta(days=1)).isoformat()):
+                continue
+            if len(set(r["teams"]) & set(d["teams"])) >= 2 or any(norm(p) and norm(p) in norm(r["en"]) for p in _players(d["sides"])):
+                deal = d
+                break
+        if deal:
+            deal["reports"].append({"en": r["en"], "url": r.get("url"), "time": r["time"]})
+            deal["members"].append(r["id"])
+            continue
+        for g in rgroups:
+            if any(_near(m["date"], r["date"], 3) and len(set(m["teams"]) & set(r["teams"])) >= 2 for m in g):
+                g.append(r)
+                break
+        else:
+            rgroups.append([r])
+    for g in rgroups:
+        top = g[0]
+        teams_order = []
+        for m in g:
+            teams_order += [t for t in m["teams"] if t not in teams_order]
+        out.append({**top, "id": "g:" + hashlib.md5("|".join(sorted(m["id"] for m in g)).encode()).hexdigest()[:12] if len(g) > 1 else top["id"],
+                    "teams": teams_order, "more": [{"en": m["en"], "url": m.get("url"), "time": m["time"]} for m in g[1:]],
+                    "members": [m["id"] for m in g]})
+    return sorted(out, key=lambda x: (x["date"], x["time"], x["id"]), reverse=True)
+
+
 def fetch_trades(tinfo, ja, season=None):
     url = f"{BASE}/transactions?limit=500" + (f"&season={season}" if season else "")
     d = get(url)
@@ -283,7 +425,18 @@ def main():
             return dt.datetime.fromisoformat(it["time"].replace("Z", "+00:00")) >= since
         except Exception:
             return False
-    recent = [it for it in new if seeded and is_recent(it)]
+    # まとめた単位で送る:元の項目がすべて今回はじめて見たもので、最近のものだけ
+    # (トレードの2つ目の行が後から来ても、同じトレードを2回送らない)
+    deals = merge(items, tinfo, ja)
+    new_ids = {it["id"] for it in new}
+    byid = {it["id"]: it for it in items}
+    recent = []
+    for d in deals:
+        mem = [byid[i] for i in d["members"] if i in byid]
+        tr = [m for m in mem if m["kind"] == "trade"]
+        base = tr or mem   # トレードが決まったら、前に報道を送っていても「確定」として送る
+        if seeded and base and all(m["id"] in new_ids for m in base) and any(is_recent(m) for m in base):
+            recent.append(d)
     ch_keys = ["none"] + [k.lower() for k in sorted(tinfo)]
     owner_fav = (cfg.get("favorites") or [None])[0]
     push = build_push(recent, ch_keys, owner_fav, stars, ja)
@@ -309,7 +462,8 @@ def main():
         json.dump({"seeded": True, "items": items, "star_alerted": sorted(alerted)},
                   open(STATE, "w"), ensure_ascii=False, indent=0)
     out_dir = os.environ.get("OUT_DIR", HERE)
-    json.dump({"generated_at": now.isoformat(timespec="minutes"), "ok": ok == 2, "items": items},
+    json.dump({"generated_at": now.isoformat(timespec="minutes"), "ok": ok == 2, "items": deals,
+               "team_ja": ja},
               open(os.path.join(out_dir, "news.json"), "w"), ensure_ascii=False)
     # ログには件数だけ
     print(f"news: {len(items)} items ({sum(1 for i in items if i['kind'] == 'report')} reports), new {len(new)}, push {len(push)} channels, sources ok {ok}/2")

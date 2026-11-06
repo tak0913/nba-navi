@@ -162,6 +162,22 @@ def test_news():
     check("news.report_ok", ok("Sources: Rockets trade Jalen Green to Suns"), True)
     check("news.report_score", ok("Heat beat Clippers 117-116 amid trade talk"), False)
     check("news.report_result", ok("Lakers win again as trade deadline nears"), False)
+    # 同じトレードはチームごとの2行を1枚に。先に出ていた報道はその下に付く
+    tinfo2 = {**tinfo, "CHI": {"nick": "Bulls", "city": "Chicago"}, "ATL": {"nick": "Hawks", "city": "Atlanta"}}
+    items = [
+        {"id": "t:1", "kind": "trade", "date": "2026-09-27", "time": "2026-09-27T00:00:00Z", "teams": ["CHI", "CHA"],
+         "en": "Acquired G Buddy Hield from Charlotte in exchange for G Rob Dillingham."},
+        {"id": "t:2", "kind": "trade", "date": "2026-09-27", "time": "2026-09-27T00:00:00Z", "teams": ["CHA", "CHI"],
+         "en": "Acquired G Rob Dillingham from Chicago Bulls for G Buddy Hield."},
+        {"id": "t:3", "kind": "trade", "date": "2026-09-22", "time": "2026-09-22T00:00:00Z", "teams": ["CHA", "ATL"],
+         "en": "Acquired G Buddy Hield from Atlanta in exchange for F Dorian Finney-Smith."},
+        {"id": "r:1", "kind": "report", "date": "2026-09-26", "time": "2026-09-26T20:00:00Z", "teams": ["CHI", "CHA"],
+         "en": "Sources: Bulls trading Dillingham to Hornets", "url": None},
+    ]
+    ds = N.merge(items, tinfo2, ja)
+    check("news.merge_count", len(ds), 2)
+    check("news.merge_sides", ds[0].get("sides"), {"CHI": ["Buddy Hield"], "CHA": ["Rob Dillingham"]})
+    check("news.merge_report", [r["en"] for r in ds[0].get("reports", [])], ["Sources: Bulls trading Dillingham to Hornets"])
 
 
 def main():
