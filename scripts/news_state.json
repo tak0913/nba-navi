@@ -1,0 +1,71 @@
+{
+"seeded": true,
+"items": [
+{
+"id": "t:5bbcdd22f56b",
+"kind": "trade",
+"date": "2026-09-27",
+"time": "2026-09-27T00:00:00Z",
+"teams": [
+"CHI",
+"CHA"
+],
+"ja": "ブルズが Buddy Hield を獲得(ホーネッツから。見返り:Rob Dillingham)",
+"en": "Acquired G Buddy Hield from Charlotte in exchange for G Rob Dillingham.",
+"url": null
+},
+{
+"id": "t:108379e36e5a",
+"kind": "trade",
+"date": "2026-09-27",
+"time": "2026-09-27T00:00:00Z",
+"teams": [
+"CHA",
+"CHI"
+],
+"ja": "ホーネッツが Rob Dillingham を獲得(ブルズから。見返り:Buddy Hield)",
+"en": "Acquired G Rob Dillingham from Chicago Bulls for G Buddy Hield.",
+"url": null
+},
+{
+"id": "t:a3baa16d7e5b",
+"kind": "trade",
+"date": "2026-09-22",
+"time": "2026-09-22T00:00:00Z",
+"teams": [
+"CHA",
+"ATL"
+],
+"ja": "ホーネッツが Buddy Hield・Ryan Nembhard・金銭 を獲得(ホークスから。見返り:Dorian Finney-Smith)",
+"en": "Waived G DJ Armstrong and C Tre Carroll. Acquired Gs Buddy Hield, Ryan Nembhard and cash considerations from Atlanta in exchange for F Dorian Finney-Smith.",
+"url": null
+},
+{
+"id": "t:b8b8c8fdd64c",
+"kind": "trade",
+"date": "2026-09-08",
+"time": "2026-09-08T00:00:00Z",
+"teams": [
+"NO",
+"MEM"
+],
+"ja": "ペリカンズが AJ Johnson・Taj Gibson を獲得(グリズリーズから。見返り:Micah Peavy・Jordan Hawkins・ドラフト指名権など)",
+"en": "Acquired G AJ Johnson and F Taj Gibson from Memphis in exchange for G Micah Peavy, G Jordan Hawkins and draft considerations.",
+"url": null
+},
+{
+"id": "t:828fc8c8a392",
+"kind": "trade",
+"date": "2026-09-08",
+"time": "2026-09-08T00:00:00Z",
+"teams": [
+"MEM",
+"NO"
+],
+"ja": "グリズリーズが Micah Peavy・Jordan Hawkins・ドラフト指名権など を獲得(ペリカンズから。見返り:AJ Johnson・Taj Gibson)",
+"en": "Acquired G Micah Peavy, G Jordan Hawkins and draft considerations from New Orleans Pelicans for G AJ Johnson and F Taj Gibson.",
+"url": null
+}
+],
+"star_alerted": []
+}
