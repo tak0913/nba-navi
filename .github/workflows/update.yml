@@ -79,6 +79,42 @@ jobs:
           if [ "${{ github.event.inputs.notify }}" = "yes" ]; then EXTRA="$EXTRA --notify-now"; fi
           OUT_DIR=../docs python collect.py --rebuild $EXTRA
 
+      # 移籍ニュース(確定=ESPNの移籍の一覧、報道=Shams Charania のESPN記事の見出し)。失敗しても更新は止めない
+      - name: 移籍ニュース
+        run: cd scripts && (OUT_DIR=../docs python news.py || echo "news.py failed (続行)")
+
+      - name: 移籍ニュースの通知(推しチームが絡むもの+エース表の選手が動くトレード)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ ! -s scripts/news_push.json ]; then exit 0; fi
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          cfg = json.load(open("scripts/config.json"))
+          texts = json.load(open("scripts/news_push.json"))
+          ok = 0
+          for key, text in texts.items():
+              t = (os.environ.get("NTFY_TOPIC") or "") if key == "_owner" else cfg["public_topic_prefix"] + key
+              if not t:
+                  continue
+              req = urllib.request.Request("https://ntfy.sh/" + t, data=text.encode(),
+                    headers={"Title": "NBA Navi(移籍)", "Tags": "arrows_counterclockwise", "Click": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"})
+              try:
+                  urllib.request.urlopen(req, timeout=20); ok += 1
+              except Exception as e:
+                  print("failed:", type(e).__name__)
+              time.sleep(1)
+          print(f"news push sent {ok}/{len(texts)}")
+          PY
+
+      - name: 移籍の持ち主への知らせ(エース表の選手が移籍したかも)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ ! -s scripts/news_alert.txt ] || [ -z "$NTFY_TOPIC" ]; then exit 0; fi
+          curl -s -o /dev/null -w "news alert %{http_code}\n" -H "Title: NBA Navi(持ち主へ)" -H "Tags: warning" \
+            --data-binary @scripts/news_alert.txt "https://ntfy.sh/$NTFY_TOPIC"
+
       - name: 公式Bluesky(月末の決選投票・毎日の速報)
         env:
           BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
@@ -164,6 +200,7 @@ jobs:
           git add scripts/bsky_state.json 2>/dev/null || true
           git add scripts/prenotify_state.json 2>/dev/null || true
           git add scripts/notify_state.json 2>/dev/null || true
+          git add scripts/news_state.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
           # 別の回と同時に記録を書いてぶつかったときは、この回の記録を優先して入れ直す(何回か試す)

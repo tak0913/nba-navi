@@ -143,9 +143,30 @@ def test_text():
     check("why.none", C.why_line(low), "見せ場が少なかった")
 
 
+def test_news():
+    """移籍ニュース:英語の原文を日本語に直すところと、見出しのネタバレよけ"""
+    import news as N
+    tinfo = {"CHA": {"nick": "Hornets", "city": "Charlotte"}, "BKN": {"nick": "Nets", "city": "Brooklyn"},
+             "MIA": {"nick": "Heat", "city": "Miami"}, "MIL": {"nick": "Bucks", "city": "Milwaukee"},
+             "LAC": {"nick": "Clippers", "city": "LA"}, "IND": {"nick": "Pacers", "city": "Indiana"}}
+    ja = {"CHA": "ホーネッツ", "BKN": "ネッツ", "MIA": "ヒート", "MIL": "バックス", "LAC": "クリッパーズ", "IND": "ペイサーズ"}
+    check("news.hornets_not_nets", N.find_team("Charlotte Hornets", tinfo), "CHA")
+    j = N.trade_ja("MIA", "Re-signed F Andrew Wiggins. Acquired Fs Giannis Antetokounmpo and Bobby Portis from the Milwaukee Bucks "
+                   "in exchange for Gs Tyler Herro, Jaime Jaquez Jr. and Kasparas Jakucionis and draft considerations.", tinfo, ja)
+    check("news.jr_not_cut", j and j[0], "ヒートが Giannis Antetokounmpo・Bobby Portis を獲得(バックスから。"
+          "見返り:Tyler Herro・Jaime Jaquez Jr・Kasparas Jakucionis・ドラフト指名権など)")
+    j = N.trade_ja("IND", "Acquired C Ivica Zubac from the L.A. Clippers for a 2026 first-round pick and three second round picks.", tinfo, ja)
+    check("news.picks", j and j[0], "ペイサーズが Ivica Zubac を獲得(クリッパーズから。見返り:2026年の1巡目指名権・2巡目指名権×3)")
+    check("news.three_team", N.trade_ja("CHA", "Acquired G X from Brooklyn and G Y from Miami in a three-team trade.", tinfo, ja), None)
+    ok = lambda h: bool(N.TRADE_WORDS.search(h)) and not N.SPOILER.search(h)
+    check("news.report_ok", ok("Sources: Rockets trade Jalen Green to Suns"), True)
+    check("news.report_score", ok("Heat beat Clippers 117-116 amid trade talk"), False)
+    check("news.report_result", ok("Lakers win again as trade deadline nears"), False)
+
+
 def main():
     update = "--update" in sys.argv
-    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text):
+    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news):
         try:
             t()
         except Exception as e:

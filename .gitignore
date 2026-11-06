@@ -13,3 +13,7 @@ docs/cal/
 scripts/prenotify.txt
 scripts/prenotify.json
 scripts/notify_now
+docs/news.json
+scripts/news.json
+scripts/news_push.json
+scripts/news_alert.txt
