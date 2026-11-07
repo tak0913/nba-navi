@@ -180,9 +180,36 @@ def test_news():
     check("news.merge_report", [r["en"] for r in ds[0].get("reports", [])], ["Sources: Bulls trading Dillingham to Hornets"])
 
 
+def test_arena_return():
+    """初凱旋:今のチームに来てから古巣の本拠地で出たか(ESPNの試合記録の atVs で見る)"""
+    import tempfile
+    def ev(team, opp, at):
+        return {"team": {"abbreviation": team}, "opponent": {"abbreviation": opp}, "atVs": at}
+    logs = {
+        # 去年の途中で ATL→WSH。WSH では ATL とホームで当たっただけ(アトランタの試合は出ていない)
+        "trae": {2026: [ev("ATL", "NY", "vs"), ev("WSH", "ATL", "vs"), ev("WSH", "BOS", "@")]},
+        # 去年の途中で MIA→GS。マイアミで出ている
+        "jimmy": {2026: [ev("MIA", "NY", "vs"), ev("GS", "MIA", "@")]},
+    }
+    old_get, old_dir = C.get, C.CACHE_DIR
+    try:
+        C.CACHE_DIR = tempfile.mkdtemp()
+        def fake(url):
+            pid = url.split("/athletes/")[1].split("/")[0]
+            y = int(url.split("season=")[1])
+            return {"events": {str(i): e for i, e in enumerate(logs[pid].get(y, []))}}
+        C.get = fake
+        check("arena.trae", C.played_at_since_join("trae", "WSH", "ATL", 2027), False)
+        check("arena.jimmy", C.played_at_since_join("jimmy", "GS", "MIA", 2027), True)
+        C.get = lambda url: (_ for _ in ()).throw(RuntimeError("x"))
+        check("arena.fail_safe", C.played_at_since_join("x", "WSH", "ATL", 2027), True)
+    finally:
+        C.get, C.CACHE_DIR = old_get, old_dir
+
+
 def main():
     update = "--update" in sys.argv
-    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news):
+    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_arena_return):
         try:
             t()
         except Exception as e:

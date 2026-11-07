@@ -1032,6 +1032,30 @@ def faced_since_join(pid, ab, opp, season):
     return faced
 
 
+def played_at_since_join(pid, ab, opp, season):
+    """今のチーム(ab)に来てから、今季より前に古巣(opp)の本拠地で試合に出たことがあるか。ESPNの選手の試合記録で確かめる。
+    試合記録は出た試合だけ載る(会場に来ただけで出なかった試合は数えない)。
+    確かめられなかったら「出た」扱い(間違った小話を出さない)"""
+    path = _cache_path("playedat", f"{pid}_{ab}_{opp}_{season}")
+    if os.path.exists(path):
+        return bool(_cache_load(path).get("played"))
+    url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}/gamelog"
+    played = False
+    try:
+        for y in range(season - 1, season - 16, -1):
+            evs = (get(f"{url}?season={y}").get("events") or {}).values()
+            mine = [e for e in evs if (e.get("team") or {}).get("abbreviation") == ab]
+            if any((e.get("opponent") or {}).get("abbreviation") == opp and e.get("atVs") == "@" for e in mine):
+                played = True
+                break
+            if len(mine) < len(list(evs)) or not mine:
+                break
+    except Exception:
+        return True
+    _cache_save(path, {"played": played})
+    return played
+
+
 def load_careers(records, limit, first=()):
     """キャリアハイ・記録目前・古巣対決に必要な選手の過去の成績を集める。1回の更新で limit 人まで。
     first = 先に集める選手(エース表の選手・日本人選手)。ほかは25点以上取った試合がある選手"""
@@ -1372,8 +1396,23 @@ def add_trivia(games_days, records, roster_cache):
                             if homecoming and pre and pre[-1][0] == ab:
                                 homecoming = not faced_since_join(pid, ab, opp, season_now)
                             jn = team_ja.get(opp, opp)
-                            if homecoming and norm(nm) not in ev_players:   # 「元◯◯」だけの小話はみんな知ってるので出さない。移籍後はじめての古巣戦だけ
-                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦", "big": True, "rank": 1, "heat": True})
+                            # 初凱旋:古巣の本拠地での試合で、今のチームに来てから古巣の本拠地で一度も出ていない
+                            # (古巣とは自分のホームで先に当たっていた場合。2026-11-06 Trae Young:11/4にワシントンで対戦済み、
+                            #  去年2月のアトランタ2試合はケガで出ていない → アトランタでは今日がはじめて)
+                            arena_first = False
+                            if ab == away and bool(last_other) and last_other[-1][0] == opp:
+                                arena_first = not any(r["home"] == opp and r["away"] == ab and
+                                                      pid in ((r.get("lineup") or {}).get(ab, {}).get("pts") or {})
+                                                      for r in hist_games)
+                                if arena_first and pre and pre[-1][0] == ab:
+                                    arena_first = not played_at_since_join(pid, ab, opp, season_now)
+                            if norm(nm) in ev_players:   # 人が入れた小話(events.json)と重ねない
+                                pass
+                            elif homecoming:   # 「元◯◯」だけの小話はみんな知ってるので出さない。移籍後はじめての古巣戦だけ
+                                tail = "。古巣の本拠地に初凱旋" if arena_first else ""
+                                items.append({"kind": "古巣対決", "text": f"{short_name(nm)}、移籍後はじめての古巣{jn}戦{tail}", "big": True, "rank": 1, "heat": True})
+                            elif arena_first:
+                                items.append({"kind": "凱旋", "text": f"{short_name(nm)}、移籍後はじめて古巣{jn}の本拠地でプレー(初凱旋)", "big": True, "rank": 1, "heat": True})
             items.sort(key=lambda x: x["rank"])
             # 会場が熱くなる小話(ブーイング・大歓迎・古巣への凱旋・セレモニー)がある試合は、期待度を★1つ上げる。
             # 試合後のランク(点数)には入れない(盛り上がるのは試合前の空気で、試合の中身とは別なので)
