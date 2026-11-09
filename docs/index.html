@@ -88,6 +88,8 @@ h3:first-child{margin-top:0}
 .more .chev{display:inline-block;transition:transform .2s;font-size:12px} .card.open .more .chev{transform:rotate(180deg)}
 .btn{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:600}
 .btn.warn{border-color:#ff6b4a;color:#ff6b4a}
+.btn.soft{border-color:rgba(255,159,67,.6);color:var(--brand)}
+.gbox .gtxt{font-size:15px;margin:2px 0 10px;line-height:1.5}
 .btn.fav{border-color:rgba(199,146,234,.6);color:#d7b8f3;margin-bottom:8px}
 .confirm{display:none;margin-top:8px;padding:12px;border-radius:10px;background:#2a1714;border:1px solid #5a2a22;font-size:14px}
 .confirm .acts{display:flex;gap:8px;margin-top:10px}
@@ -260,9 +262,12 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-06c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-09a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
+// 1段目のネタバレ(見方の一言だけ)を開いた試合。スマホには保存しない(別のタブ・別の日・アプリを離れたら閉じる)
+const GUIDE=new Map();
+function closeAll(){OPEN.clear();GUIDE.clear()}
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -503,7 +508,7 @@ function renderBd(id,b){
     bdRow("余韻(試合後にどれだけ話題になったか)",b.buzz.pts,0,[`同じ夜の試合の中での話題の大きさ(100%が一番):1日後 ${pc(bz.d1)}/7日後 ${pc(bz.d7)}/30日後 ${pc(bz.d30)}`,"測れた分の平均で決まるから、7日後・30日後に点が動くよ"]),
     bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?[`切り抜き動画が、そのチームのいつもの${b.moment.ratio??"?"}倍見られた`]:(b.moment.ratio?[`切り抜き動画はいつもの${b.moment.ratio}倍(${(DATA.moment||{}).ratio??2}倍から加点)`]:[])),
   ].join("");
-  return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div>${b.guide?`<div class="guide">▶ ${esc(b.guide)}</div>`:""}<div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
+  return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div>${b.guide&&!GUIDE.has(id)?`<div class="guide">▶ ${esc(b.guide)}</div>`:""}<div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
     ${rateBox(id,b.votes||{})}
     <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost" data-id="${id}">投稿する</button></div>`;
 }
@@ -563,6 +568,7 @@ function loadBd(id){
 function loadPendingBd(){document.querySelectorAll('.bd[data-pending]').forEach(e=>loadBd(e.id.slice(3)))}
 // NBAカップの試合の印(試合前からわかること。勝ち抜けがかかる試合だけ目立たせる)
 const CUP_JA={group:"グループリーグ",qf:"準々決勝",sf:"準決勝",final:"決勝"};
+function guideHTML(t){return `<div class="guide gtxt">▶ ${t?esc(t):"見方はまだ出せないよ(採点がまだ)"}</div>`}
 function cupTag(c){return c?`<div class="cup${c==="group"?"":" ko"}">🏆 NBAカップ ${CUP_JA[c]||""}</div>`:""}
 function gameCard(g){
   const [h,a]=g.teams, seen=OPEN.has(g.id);
@@ -574,9 +580,13 @@ function gameCard(g){
       <div class="confirm" id="wf_${g.id}">見終わった? この試合のランクと順位が表示されるよ(スコアは出ない)。<div class="acts"><button class="no" data-act="wcancel" data-id="${g.id}">まだ</button><button class="yes" data-act="watched" data-id="${g.id}">見終わった</button></div></div></div>`;
   }
   if(g.completed&&g.result){
+    const gd=GUIDE.get(g.id), step1=gd!=null||seen;
     rev+=`<div class="reveal top">
-      <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">結果とスタッツを見る(ネタバレ注意)</button>
-      <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div>
+      <button class="btn soft" data-act="gask" data-id="${g.id}" style="${step1?"display:none":""}">ネタバレを見る(まずは見方の一言だけ)</button>
+      <div class="confirm" id="gf_${g.id}">「第4Qからで十分」「フルハイライトで十分」みたいな見方の一言だけ出すよ。スコアと勝敗は出ないけど、終盤もつれたか・大逆転があったかくらいはわかる。<div class="acts"><button class="no" data-act="gcancel" data-id="${g.id}">やめる</button><button class="yes" data-act="gshow" data-id="${g.id}">見る</button></div></div>
+      <div class="gbox" id="gb_${g.id}" style="${step1?"":"display:none"}"><div id="gt_${g.id}">${gd!=null?guideHTML(gd):""}</div>
+      <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">試合結果とスタッツを見る(ネタバレ注意)</button>
+      <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div></div>
       <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
   }
   const tc=(DATA.team_colors||{})[h.abbr];
@@ -704,7 +714,7 @@ function renderHelp(){
   ${sec("1. 毎日の使い方",`<ol style="padding-left:18px;margin:0">
     <li>通知(9・12・15・18・21時ごろ)か「試合」タブで、<b>ランクが付いた試合</b>を確認</li>
     <li>SS・S・Aなら、ハイライトじゃなく<b>本編を見る</b>のがおすすめ</li>
-    <li>見終わったら、カードの「結果とスタッツを見る」で答え合わせ。点数の内訳と、そのランクになった理由も見られる</li>
+    <li>見る時間がない日は、カードの「ネタバレを見る」で<b>見方の一言だけ</b>(「第4Qからで十分」「フルハイライトで十分」など)。スコアと勝敗は出ない。その下の「試合結果とスタッツを見る」で答え合わせ。点数の内訳と、そのランクになった理由も見られる</li>
     <li>ランクが自分の感覚とズレてたら、「投稿」タブから教えてね(基準を直す一番の材料になる)</li></ol>`)}
   ${sec("2. 各タブの見方",`<b>試合</b>:今日・昨日・おとといの試合。始まる前は期待度★1〜3(🔥はブーイング・大歓迎・古巣への凱旋・セレモニーなど会場が熱くなる試合で、★が1つ増えている。試合後のランクには関係なし)、終わったらランク。カードに欠場・出場微妙の選手と理由・復帰見込み。枠の色はホームチームのチームカラー。「ロスター・チームの強みを見る」でロスター。その日の試合が全部終わったらランク順に並び、ランクを隠している推しの試合は一番上。<br>
     <b>ティア表</b>:直近3日・週・月・シーズンごとのランキング。「ランク外も表示」で全試合。<br>
@@ -841,7 +851,7 @@ function obSteps(){
     ["ようこそ!🏀",`<p>NBAの試合を<b>ネタバレなしで</b>「見るべきかどうか」教えてくれるアプリだよ。</p>
       <ul><li>勝敗やスコアは、<b>自分でボタンを押すまで出ない</b></li><li>代わりに、試合がどれだけ面白かったかを<b>ランク(SS〜C)</b>で教える</li><li>データは1時間ごとに自動で更新</li></ul>`],
     ["ランクの意味",`${tiers}<p style="color:var(--sub);font-size:13px">ランクは比べる範囲で決まるよ(SS=歴代、S=シーズン、A=月、B=週の中での上位)。試合後のニュースや動画の盛り上がり(余韻)でも少しずつ動く。</p>`],
-    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る。🔥は会場が熱くなる試合(ブーイング・大歓迎・凱旋・セレモニー)で★+1</li><li>カードに<b>欠場・出場微妙の選手</b>と、理由・復帰見込み。枠の色は<b>ホームチームのチームカラー</b></li><li><b>「結果とスタッツを見る」</b>は、もう一度確認してから表示(うっかり防止)。点数の内訳も見られる</li><li>「ロスター・チームの強みを見る」でロスター</li></ul>`],
+    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る。🔥は会場が熱くなる試合(ブーイング・大歓迎・凱旋・セレモニー)で★+1</li><li>カードに<b>欠場・出場微妙の選手</b>と、理由・復帰見込み。枠の色は<b>ホームチームのチームカラー</b></li><li>終わった試合は2段階。まず<b>「ネタバレを見る」</b>で見方の一言だけ(ハイライトでいいか、第4Qからでいいか)。その下の<b>「試合結果とスタッツを見る」</b>でスコアと点数の内訳。どちらももう一度確認してから表示(うっかり防止)</li><li>「ロスター・チームの強みを見る」でロスター</li></ul>`],
     ["ティア表・殿堂・エース表",`<ul><li><b>ティア表</b>:直近3日・週・月・シーズンでランク順に並ぶ。レギュラーシーズン/プレーオフ切り替え、「ランク外も表示」で全試合</li><li><b>殿堂</b>:何年経っても語られる伝説の試合だけが残る場所</li><li><b>エース表</b>:各チームのエースと格(採点に使ってる)</li></ul>`],
     ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付け・ティア表・通知から外して、ネタバレしないようにするよ。</p>
       <p style="font-size:13px">なので<b>推しの試合だけランクが出なくても故障じゃない</b>よ。カードには「🔒推し」と出て、24時間たつか、見終わってカードの「見終わった」ボタンを押すと普通にランクが付く。</p>
@@ -885,7 +895,7 @@ function render(){
   m.innerHTML=view==="day"?renderDay():view==="tiers"?renderTiers():view==="hall"?renderHall():view==="aces"?renderAces():view==="trivia"?renderTrivia():view==="news"?renderNews():view==="settings"?renderSettings():view==="post"?renderPost():renderHelp();
   loadPendingBd();
 }
-document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;OPEN.clear();view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
+document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;closeAll();view=b.dataset.v;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));render();window.scrollTo(0,0)});
 document.getElementById("main").addEventListener("click",e=>{
   const el=e.target.closest("[data-act]"); if(!el) return;
   const id=el.dataset.id, act=el.dataset.act;
@@ -894,14 +904,14 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="pkind"){postKind=el.dataset.k;render();return}
   if(act==="heat"){postHeat=el.dataset.k;document.querySelectorAll('[data-act="heat"]').forEach(x=>x.classList.toggle("on",x===el));return}
   if(act==="send"){sendPost(el);return}
-  if(act==="day"){OPEN.clear();dayIdx=+el.dataset.i;render();return}
+  if(act==="day"){closeAll();dayIdx=+el.dataset.i;render();return}
   if(act==="scope"){scope=el.dataset.k;period=null;render();return}
   if(act==="stype"){stype=el.dataset.k;period=null;render();return}
   if(act==="period"){period=el.dataset.k;render();return}
   if(act==="all"){showAll=!showAll;render();return}
   if(act==="ob"){showOb(0);return}
-  if(act==="gopost"){if(id){postKind="rank";postGame=id}OPEN.clear();view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
-  if(act==="goset"){OPEN.clear();view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
+  if(act==="gopost"){if(id){postKind="rank";postGame=id}closeAll();view="post";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="post"));render();window.scrollTo(0,0);return}
+  if(act==="goset"){closeAll();view="settings";document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="settings"));render();window.scrollTo(0,0);return}
   if(act==="copy"){const t=document.getElementById("topic").textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{el.textContent="コピーした"}).catch(()=>{el.textContent="長押しでコピーしてね"});return}
   if(act==="toggle"){document.getElementById("g_"+id).classList.toggle("open");return}
@@ -932,13 +942,24 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="dshow"){
     const days=allDays(), di=days.findIndex(d=>d.games.some(g=>g.id===id&&g.result));
     if(di>=0){   // 直近の試合:試合タブのその日へ移って、結果を開いた状態で見せる
-      OPEN.clear(); OPEN.add(id); store.set("seen_"+id,"1"); dayIdx=di; view="day";
+      closeAll(); OPEN.add(id); store.set("seen_"+id,"1"); dayIdx=di; view="day";
       document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.v==="day"));
       computeTiers(); render(); document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
     document.getElementById("tcf_"+id).style.display="none";
     const box=document.getElementById("tdl_"+id);
     box.innerHTML=`<div class="bd" id="bd_${id}"><div class="d">点数の内訳を読み込み中…</div></div><button class="btn" data-act="dclose" data-id="${id}" style="margin-top:6px">閉じる ▴</button>`; loadBd(id); return}
   if(act==="dclose"){const it=el.closest(".item"); document.getElementById("tdl_"+id).innerHTML=""; it?.querySelector('[data-act="dask"]')?.style.removeProperty("display"); return}
+  // 1段目:見方の一言だけ(スコア・勝敗・理由の文は出さない)。推しの試合でも「見終わった」にはしない
+  if(act==="gask"){document.getElementById("gf_"+id).style.display="block";el.style.display="none";return}
+  if(act==="gcancel"){document.getElementById("gf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="gask"]').style.display="";return}
+  if(act==="gshow"){
+    document.getElementById("gf_"+id).style.display="none";
+    const gb=document.getElementById("gb_"+id), gt=document.getElementById("gt_"+id);
+    gb.style.display="block"; gt.innerHTML='<div class="d">読み込み中…</div>';
+    fetch("b/"+id+".json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
+      .then(b=>{GUIDE.set(id,b.guide||""); gt.innerHTML=guideHTML(b.guide||"")})
+      .catch(()=>{GUIDE.set(id,""); gt.innerHTML=guideHTML("")});
+    return}
   if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
@@ -949,8 +970,8 @@ document.getElementById("main").addEventListener("click",e=>{
   }
 });
 // アプリを離れたら(ホームに戻る・別のアプリ・画面を消す)開いていた結果を閉じる。戻ってきたときにネタバレが出たままにならないように
-document.addEventListener("visibilitychange",()=>{if(document.hidden&&OPEN.size){OPEN.clear();if(DATA)render()}});
-window.addEventListener("pagehide",()=>{OPEN.clear()});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&(OPEN.size||GUIDE.size)){closeAll();if(DATA)render()}});
+window.addEventListener("pagehide",()=>{closeAll()});
 // ---- LINEで送る(アプリのリンクだけ。試合の結果やランクは送らない) ----
 const SHARE_URL="https://tak0913.github.io/nba-navi/";
 const SHARE_TEXT="NBA 観戦ナビ:ネタバレなしで「この試合は見るべきか」がわかるアプリ🏀\n"+SHARE_URL;
