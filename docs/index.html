@@ -89,6 +89,7 @@ h3:first-child{margin-top:0}
 .btn{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:15px;font-weight:600}
 .btn.warn{border-color:#ff6b4a;color:#ff6b4a}
 .btn.soft{border-color:rgba(255,159,67,.6);color:var(--brand)}
+.gbox{margin-top:8px}
 .gbox .gtxt{font-size:15px;margin:2px 0 10px;line-height:1.5}
 .btn.fav{border-color:rgba(199,146,234,.6);color:#d7b8f3;margin-bottom:8px}
 .confirm{display:none;margin-top:8px;padding:12px;border-radius:10px;background:#2a1714;border:1px solid #5a2a22;font-size:14px}
@@ -262,7 +263,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-09b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-09c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 // 1段目のネタバレ(見方の一言だけ)を開いた試合。スマホには保存しない(別のタブ・別の日・アプリを離れたら閉じる)
@@ -959,7 +960,8 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="dclose"){const it=el.closest(".item"); document.getElementById("tdl_"+id).innerHTML=""; it?.querySelector('[data-act="dask"]')?.style.removeProperty("display"); return}
   // 1段目:見方の一言だけ(スコア・勝敗・理由の文は出さない)。推しの試合でも「見終わった」にはしない
   if(act==="gask"){document.getElementById("gf_"+id).style.display="block";el.style.display="none";return}
-  if(act==="gcancel"){document.getElementById("gf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="gask"]').style.display="";return}
+  // 一言を「やめる」→ 1段目のボタンに戻しつつ、すぐ下に試合結果のボタンを出す(一言をとばして結果だけ見たい人用)
+  if(act==="gcancel"){document.getElementById("gf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="gask"]').style.display="";document.getElementById("gb_"+id).style.display="block";return}
   if(act==="gshow"){
     document.getElementById("gf_"+id).style.display="none";
     const gb=document.getElementById("gb_"+id), gt=document.getElementById("gt_"+id);
@@ -974,6 +976,7 @@ document.getElementById("main").addEventListener("click",e=>{
     const g=allGames().find(x=>x.id===id);
     const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block"; loadBd(id);
     document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1"); OPEN.add(id);
+    const ga=document.querySelector(`[data-act="gask"][data-id="${id}"]`); if(ga) ga.style.display="none";
     if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない
   }
 });
