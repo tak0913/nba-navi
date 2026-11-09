@@ -262,12 +262,14 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-09a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-09b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 // 1段目のネタバレ(見方の一言だけ)を開いた試合。スマホには保存しない(別のタブ・別の日・アプリを離れたら閉じる)
 const GUIDE=new Map();
 function closeAll(){OPEN.clear();GUIDE.clear()}
+// ネタバレの開き方(このスマホだけ)。"2"=まず見方の一言→次に試合結果(はじめはこれ)、"1"=すぐ試合結果
+function twoStep(){return store.get("spoil_mode")!=="1"}
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
 let FAV="", VISIBLE=[];
 const TIER_SHORT={mvp:"MVP級",allstar:"AS級",ace:"エース"};
@@ -580,12 +582,12 @@ function gameCard(g){
       <div class="confirm" id="wf_${g.id}">見終わった? この試合のランクと順位が表示されるよ(スコアは出ない)。<div class="acts"><button class="no" data-act="wcancel" data-id="${g.id}">まだ</button><button class="yes" data-act="watched" data-id="${g.id}">見終わった</button></div></div></div>`;
   }
   if(g.completed&&g.result){
-    const gd=GUIDE.get(g.id), step1=gd!=null||seen;
+    const gd=GUIDE.get(g.id), two=twoStep(), step1=!two||gd!=null||seen;
     rev+=`<div class="reveal top">
-      <button class="btn soft" data-act="gask" data-id="${g.id}" style="${step1?"display:none":""}">ネタバレを見る(まずは見方の一言だけ)</button>
-      <div class="confirm" id="gf_${g.id}">「第4Qからで十分」「フルハイライトで十分」みたいな見方の一言だけ出すよ。スコアと勝敗は出ないけど、終盤もつれたか・大逆転があったかくらいはわかる。<div class="acts"><button class="no" data-act="gcancel" data-id="${g.id}">やめる</button><button class="yes" data-act="gshow" data-id="${g.id}">見る</button></div></div>
+      ${two?`<button class="btn soft" data-act="gask" data-id="${g.id}" style="${step1?"display:none":""}">ネタバレを見る(まずは見方の一言だけ)</button>
+      <div class="confirm" id="gf_${g.id}">「第4Qからで十分」「フルハイライトで十分」みたいな見方の一言だけ出すよ。スコアと勝敗は出ないけど、終盤もつれたか・大逆転があったかくらいはわかる。<div class="acts"><button class="no" data-act="gcancel" data-id="${g.id}">やめる</button><button class="yes" data-act="gshow" data-id="${g.id}">見る</button></div></div>`:""}
       <div class="gbox" id="gb_${g.id}" style="${step1?"":"display:none"}"><div id="gt_${g.id}">${gd!=null?guideHTML(gd):""}</div>
-      <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">試合結果とスタッツを見る(ネタバレ注意)</button>
+      <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">${two?"試合結果とスタッツを見る(ネタバレ注意)":"結果とスタッツを見る(ネタバレ注意)"}</button>
       <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div></div>
       <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
   }
@@ -827,6 +829,11 @@ function renderSettings(){
       ・24時間たつか、<b>見終わって「見終わった」ボタンを押す(または結果を開く)</b>と、普通にランクが付いて表にも入る<br>
       ・ロスター・欠場情報・結果ボタンはいつも通り使える</div>
     <div style="color:var(--sub);font-size:12px;margin-top:8px">この設定はこのスマホにだけ保存される。</div></div>
+  <div class="set"><h4>終わった試合のネタバレの開き方</h4>
+    <div class="seg">${[["2","2段階"],["1","すぐ結果"]].map(([k,l])=>`<button data-act="spoil" data-k="${k}" class="${(twoStep()?"2":"1")===k?"on":""}">${l}</button>`).join("")}</div>
+    <div class="favnote" style="margin-top:10px"><b>2段階</b>:まず「第4Qからで十分」「フルハイライトで十分」みたいな<b>見方の一言だけ</b>。スコアと勝敗は出ない。そのあと試合結果<br>
+      <b>すぐ結果</b>:見方の一言をとばして、すぐ試合結果(見方の一言は結果の中に出る)</div>
+    <div style="color:var(--sub);font-size:12px;margin-top:8px">この設定はこのスマホにだけ保存される。</div></div>
   <div class="set"><h4>通知を受け取る(無料アプリ ntfy)</h4>
     <div>9・12・15・18・21時ごろ、SS〜Aの試合を対戦カードとランクだけで通知するよ(中身は書かない)。</div>
     <div class="topic"><code id="topic">${esc(topic)}</code><button class="copy" data-act="copy">コピー</button></div>
@@ -851,7 +858,7 @@ function obSteps(){
     ["ようこそ!🏀",`<p>NBAの試合を<b>ネタバレなしで</b>「見るべきかどうか」教えてくれるアプリだよ。</p>
       <ul><li>勝敗やスコアは、<b>自分でボタンを押すまで出ない</b></li><li>代わりに、試合がどれだけ面白かったかを<b>ランク(SS〜C)</b>で教える</li><li>データは1時間ごとに自動で更新</li></ul>`],
     ["ランクの意味",`${tiers}<p style="color:var(--sub);font-size:13px">ランクは比べる範囲で決まるよ(SS=歴代、S=シーズン、A=月、B=週の中での上位)。試合後のニュースや動画の盛り上がり(余韻)でも少しずつ動く。</p>`],
-    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る。🔥は会場が熱くなる試合(ブーイング・大歓迎・凱旋・セレモニー)で★+1</li><li>カードに<b>欠場・出場微妙の選手</b>と、理由・復帰見込み。枠の色は<b>ホームチームのチームカラー</b></li><li>終わった試合は2段階。まず<b>「ネタバレを見る」</b>で見方の一言だけ(ハイライトでいいか、第4Qからでいいか)。その下の<b>「試合結果とスタッツを見る」</b>でスコアと点数の内訳。どちらももう一度確認してから表示(うっかり防止)</li><li>「ロスター・チームの強みを見る」でロスター</li></ul>`],
+    ["試合タブ",`<ul><li>今日・昨日・おとといの試合が並ぶ</li><li>始まる前は<b>期待度★1〜3</b>、終わったら<b>ランク</b>が出る。🔥は会場が熱くなる試合(ブーイング・大歓迎・凱旋・セレモニー)で★+1</li><li>カードに<b>欠場・出場微妙の選手</b>と、理由・復帰見込み。枠の色は<b>ホームチームのチームカラー</b></li><li>終わった試合は2段階。まず<b>「ネタバレを見る」</b>で見方の一言だけ(ハイライトでいいか、第4Qからでいいか)。その下の<b>「試合結果とスタッツを見る」</b>でスコアと点数の内訳。どちらももう一度確認してから表示(うっかり防止)。すぐ結果を見たいなら「設定」で「すぐ結果」にできる</li><li>「ロスター・チームの強みを見る」でロスター</li></ul>`],
     ["ティア表・殿堂・エース表",`<ul><li><b>ティア表</b>:直近3日・週・月・シーズンでランク順に並ぶ。レギュラーシーズン/プレーオフ切り替え、「ランク外も表示」で全試合</li><li><b>殿堂</b>:何年経っても語られる伝説の試合だけが残る場所</li><li><b>エース表</b>:各チームのエースと格(採点に使ってる)</li></ul>`],
     ["推しチームを選ぼう",`<p>推しの試合は自分で見るはず。だから推しの試合は、<b>終わってから24時間</b>ランク付け・ティア表・通知から外して、ネタバレしないようにするよ。</p>
       <p style="font-size:13px">なので<b>推しの試合だけランクが出なくても故障じゃない</b>よ。カードには「🔒推し」と出て、24時間たつか、見終わってカードの「見終わった」ボタンを押すと普通にランクが付く。</p>
@@ -900,6 +907,7 @@ document.getElementById("main").addEventListener("click",e=>{
   const el=e.target.closest("[data-act]"); if(!el) return;
   const id=el.dataset.id, act=el.dataset.act;
   if(act==="nkind"){newsKind=el.dataset.k;render();return}
+  if(act==="spoil"){store.set("spoil_mode",el.dataset.k);closeAll();render();return}
   if(act==="nfav"){newsFav=!newsFav;render();return}
   if(act==="pkind"){postKind=el.dataset.k;render();return}
   if(act==="heat"){postHeat=el.dataset.k;document.querySelectorAll('[data-act="heat"]').forEach(x=>x.classList.toggle("on",x===el));return}
