@@ -2219,26 +2219,63 @@ def rating_gaps(records):
 LATE = {"クラッチ(終盤の接戦)", "最後の攻撃までもつれた", "終盤の猛追", "終盤の大逆転", "ブザービーター", "試合を決める守備"}
 
 
-def watch_guide(out, tier):
-    """どこから見ればいいか(タイパ用)。終盤の流れがわかるのでネタバレ。結果を開いた人・理由ボタンを押した人にだけ見せる"""
+GUIDE_TEXT = {
+    "full_comeback": "本編を最初から(約2時間15分)。大逆転の流れごと見てほしい",
+    "full_or_q4": "本編を最初から(約2時間15分)。時間がなければ第4Qから(約40分)",
+    "full": "本編を最初から(約2時間15分)",
+    "q4": "第4Qから(約40分)で十分",
+    "half": "後半から(約1時間10分)",
+    "hl_star": "フルハイライト(約10分)で十分。スターの見せ場はそこに入ってる",
+    "hl": "フルハイライト(約10分)で十分",
+    "skip": "見なくてもいいかも。気になるならハイライトで",
+}
+
+
+def guide_key(out, tier):
+    """どこから見ればいいかの判断(種類だけ)。言い回しは GUIDE_TEXT(決まり文句)か、Claudeが書いた lines.json"""
     fl = {x["txt"] for x in out["flow"]["items"]}
     late = bool(fl & LATE) or "延長" in fl
     whole = "20点差以上の逆転" in fl
     star = out["stars"]["pts"] >= 25
     top = tier in ("SS", "S", "A")
     if top and whole:
-        return "本編を最初から(約2時間15分)。大逆転の流れごと見てほしい"
+        return "full_comeback"
     if top and late:
-        return "本編を最初から(約2時間15分)。時間がなければ第4Qから(約40分)"
+        return "full_or_q4"
     if top:
-        return "本編を最初から(約2時間15分)"
+        return "full"
     if late and not star:
-        return "第4Qから(約40分)で十分"
+        return "q4"
     if late:
-        return "後半から(約1時間10分)"
+        return "half"
     if star:
-        return "フルハイライト(約10分)で十分。スターの見せ場はそこに入ってる"
-    return "フルハイライト(約10分)で十分" if tier in ("B", "C") else "見なくてもいいかも。気になるならハイライトで"
+        return "hl_star"
+    return "hl" if tier in ("B", "C") else "skip"
+
+
+def watch_guide(out, tier):
+    """どこから見ればいいか(タイパ用)。終盤の流れがわかるのでネタバレ。結果を開いた人・理由ボタンを押した人にだけ見せる"""
+    return GUIDE_TEXT[guide_key(out, tier)]
+
+
+# Claudeが試合ごとに書いた言葉(見方の一言・理由)。1日1回、Claudeが書いて保存する(手順は tools/WRITER.md)。
+# まだ書かれていない試合は決まり文句のまま。{試合id: {"k": 書いたときの見方の種類, "guide": 一言, "why": 理由, "at": 書いた日}}
+LINES = load_json(os.path.join(HERE, "lines.json"), {})
+MATERIAL = []   # Claudeが書くための材料(scripts/material.json に書き出す。公開はしない)
+GTIER = {}   # 見方の一言用のランク(推しを隠している試合も含めて付けたもの)。試合id → ランク
+
+
+def apply_lines(out, gid, key):
+    """Claudeが書いた言葉があれば差し替える。
+    見方の種類が書いたときから変わっていたら(ランクが動いたなど)、見方の一言だけは決まり文句に戻す(中身と言葉が食い違わないように)"""
+    ln = LINES.get(str(gid))
+    if not isinstance(ln, dict):
+        return
+    if ln.get("why"):
+        out["why"] = str(ln["why"])[:200]
+        out["by"] = "claude"
+    if ln.get("guide") and ln.get("k") == key:
+        out["guide"] = str(ln["guide"])[:120]
 
 
 def write_ics(games_days, out_dir):
@@ -2281,10 +2318,50 @@ def write_breakdowns(records, out_dir):
         out["moment"] = {"pts": moment_bonus(r), "ratio": (r["moment"][1] if _moment_ok(r.get("moment")) else None)}
         out["total"] = fs(r)
         out["why"] = why_line(out)
-        out["guide"] = watch_guide(out, r.get("tier") or "-")
+        # 見方の一言は、推しを隠している試合でも本当のランクで決める(隠している間「ランク外」用の文が出ていた)
+        gk = guide_key(out, GTIER.get(r["id"]) or r.get("tier") or "-")
+        out["guide"] = GUIDE_TEXT[gk]
+        out["gk"] = gk
+        apply_lines(out, r["id"], gk)
+        if r["id"] in QSRC:   # Claudeが書くための材料(この回に取り直した直近3日の試合)
+            try:
+                MATERIAL.append(game_material(r, out, QSRC[r["id"]]))
+            except Exception:
+                pass
         v = list((RATINGS_DATA.get(str(r["id"])) or {}).values())
         out["votes"] = {k: v.count(k) for k in ("good", "ok", "bad")}
         json.dump(out, open(os.path.join(d, f"{r['id']}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
+
+
+def game_material(r, out, sm):
+    """Claudeが言葉を書くための材料(1試合ぶんを小さくまとめたもの)。数字はここにあるものだけ使ってもらう"""
+    st = period_stats(sm.get("plays", []))
+    box = box_players(sm)
+    nper = max([q for per in st.values() for q in per] or [4])
+    side = {r["home"]: "homeScore", r["away"]: "awayScore"}
+    qsc, prev = {ab: [] for ab in side}, {ab: 0 for ab in side}
+    for q in range(1, nper + 1):
+        ps = [pl for pl in sm["plays"] if (pl.get("period") or {}).get("number") == q]
+        for ab, k in side.items():
+            now = (ps[-1].get(k) if ps else prev[ab]) or prev[ab]
+            qsc[ab].append(now - prev[ab])
+            prev[ab] = now
+    players = {}
+    for ab, rows in box.items():
+        top = sorted([x for x in rows if not x["dnp"]], key=lambda x: -num(x["stats"].get("PTS", 0)))[:6]
+        players[ab] = [{"name": x["name"], "starter": x["starter"],
+                        **{k: x["stats"].get(k, "") for k in ("MIN", "PTS", "REB", "AST", "STL", "BLK", "FG", "3PT", "FT", "TO")},
+                        "q_pts": [st.get(x["id"], {}).get(q, {}).get("PTS", 0) for q in range(1, nper + 1)]} for x in top]
+    return {"id": r["id"], "date": r["date"], "away": r["away"], "home": r["home"],
+            "tier": GTIER.get(r["id"]) or r.get("tier") or "-", "total": out["total"],
+            "gk": out["gk"], "guide_default": GUIDE_TEXT[out["gk"]], "why_default": why_line(out),
+            "flow": [x["txt"] for x in out["flow"]["items"]],
+            "stars": [{"who": x.get("who"), "team": x.get("team"), "why": x.get("why"), "pts": x.get("raw")}
+                      for x in out["stars"]["items"] if x.get("k") == "star"],
+            "card": [x["txt"] for x in out["card"]["items"]], "team": [x["txt"] for x in out["team"]["items"]],
+            "record": [x.get("txt") for x in out["record"]["items"]], "absent": out["absence"]["who"],
+            "final": dict(prev), "q_scores": qsc, "players": players,
+            "has_line": str(r["id"]) in LINES}
 
 
 def write_quarters(out_dir):
@@ -2410,6 +2487,13 @@ def main():
         for k in ("tier", "ss_confirmed", "season_rank", "month_rank"):
             r.pop(k, None)
     assign_tiers([r for r in allrec if not is_hidden(r)], prev_records, today)
+    # 見方の一言用:隠している推しの試合も含めたランク(画面のランク・通知・順位には使わない)
+    try:
+        full = [dict(r) for r in allrec]
+        assign_tiers(full, prev_records, today)
+        GTIER.update({r["id"]: r.get("tier") or "-" for r in full})
+    except Exception:
+        pass
     records = allrec
     records.sort(key=lambda r: r["date"])
     arch = {r["id"]: r for r in records}
@@ -2449,6 +2533,7 @@ def main():
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
     write_breakdowns(records, out_dir)
     write_quarters(out_dir)
+    json.dump(MATERIAL, open(os.path.join(HERE, "material.json"), "w"), ensure_ascii=False)
     write_ics(days + future, out_dir)
 
     # 通知:持ち主用(config の favorites)
