@@ -129,6 +129,8 @@ th{color:var(--sub);font-weight:500}
 .pick1 .pw{font-size:12.5px;margin-top:3px}
 .whyin{font-size:12.5px;color:var(--text);margin-top:3px;font-weight:600}
 .whyin:empty{display:none}
+.apx{color:var(--brand);font-weight:700}
+.catch h3{margin-top:6px}
 .guide{font-size:13px;color:var(--brand);margin:0 0 6px;font-weight:600}
 .cal{margin-left:6px;background:transparent;border:1px solid var(--line);color:var(--sub);border-radius:8px;padding:1px 7px;font-size:11px;vertical-align:1px}
 .pv{font-size:12.5px;color:var(--text);margin-top:4px}
@@ -263,12 +265,14 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-09c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-10a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 // 1段目のネタバレ(見方の一言だけ)を開いた試合。スマホには保存しない(別のタブ・別の日・アプリを離れたら閉じる)
 const GUIDE=new Map();
-function closeAll(){OPEN.clear();GUIDE.clear()}
+// 追いつき用のスタッツ:FROM=第何Qから見る試合か(見方の一言と一緒に届く)、QS=開いている追いつき用スタッツ。どちらもスマホには保存しない
+const FROM=new Map(), QS=new Map();
+function closeAll(){OPEN.clear();GUIDE.clear();FROM.clear();QS.clear()}
 // ネタバレの開き方(このスマホだけ)。"2"=まず見方の一言→次に試合結果(はじめはこれ)、"1"=すぐ試合結果
 function twoStep(){return store.get("spoil_mode")!=="1"}
 let DATA=null, view="day", dayIdx=null, scope="week", stype="regular", period=null, showAll=false;
@@ -458,6 +462,29 @@ function boxTable(rows){
     `<tr><td>${r.starter?"<b>":""}${esc(r.name)}${r.starter?"</b>":""}</td><td>${r.MIN}</td><td>${r.PTS}</td><td>${r.REB}</td><td>${r.AST}</td><td>${r.STL}</td><td>${r.BLK}</td><td>${r.FG}</td><td>${r["3PT"]}</td><td>${r.FT}</td><td>${r["+/-"]}</td></tr>`).join("");
   return `<div class="boxwrap"><table>${head}${body}</table></div>`;
 }
+// ---- 追いつき用のスタッツ(途中から見る試合だけ。見始めるところまでの選手の数字。チームの合計点・勝敗は出さない) ----
+function uptoLabel(fr){return fr===3?"前半まで":"第"+(fr-1)+"Qまで"}
+function catchTable(rows){
+  rows=rows.slice().sort((a,b)=>b.PTS-a.PTS);
+  const ap=(r,k)=>(r.approx||[]).includes(k)?'<span class="apx">*</span>':"";
+  const head=`<tr><th>選手</th><th>点</th><th>リバ</th><th>アシ</th><th>スティ</th><th>ブロ</th><th>TO</th><th>FG</th><th>3P</th><th>FT</th></tr>`;
+  const body=rows.map(r=>`<tr><td>${r.starter?"<b>":""}${esc(r.name)}${r.starter?"</b>":""}</td>${["PTS","REB","AST","STL","BLK","TO","FG","3PT","FT"].map(k=>`<td>${r[k]}${ap(r,k)}</td>`).join("")}</tr>`).join("");
+  return `<div class="boxwrap"><table>${head}${body}</table></div>`;
+}
+function catchHTML(g){
+  const fr=FROM.get(g.id); if(!fr||OPEN.has(g.id)) return "";
+  const lb=uptoLabel(fr), q=QS.get(g.id);
+  if(q){
+    const [h,a]=g.teams, any=Object.values(q.teams||{}).some(rs=>rs.some(r=>r.approx));
+    return `<div class="catch"><h3>📊 ${lb}のスタッツ(追いつき用)</h3>
+      ${[a,h].map(t=>`<h3>${esc(t.name)}</h3>${catchTable((q.teams||{})[t.abbr]||[])}`).join("")}
+      <div class="d">${lb}に出た選手だけ。太字は先発。TO=ボールを失った回数。${any?"＊は公式の合計と合わなかった項目(1つくらいずれてるかも)。":""}</div>
+      <button class="btn" data-act="qhide" data-id="${g.id}" style="margin:8px 0 10px">${lb}のスタッツを閉じる ▴</button></div>`;
+  }
+  return `<button class="btn soft" data-act="qask" data-id="${g.id}" style="margin-bottom:10px">📊 ${lb}のスタッツを見る(追いつき用)</button>
+    <div class="confirm" id="qf_${g.id}" style="margin:-2px 0 10px">${lb}の選手ごとの数字だけ出すよ。勝敗と最終スコアは出ない。ただ、選手の得点を足すと<b>${lb}の点差はわかる</b>。<div class="acts"><button class="no" data-act="qcancel" data-id="${g.id}">やめる</button><button class="yes" data-act="qshow" data-id="${g.id}">見る</button></div></div>`;
+}
+function setQc(id){const el=document.getElementById("qc_"+id), g=allGames().find(x=>x.id===id); if(el&&g) el.innerHTML=catchHTML(g)}
 function resultHTML(g){
   const r=g.result, [h,a]=g.teams;
   const per=(r.linescores[a.abbr]||[]).map((_,i)=>i<4?`${i+1}Q`:`OT${i-3}`);
@@ -587,7 +614,7 @@ function gameCard(g){
     rev+=`<div class="reveal top">
       ${two?`<button class="btn soft" data-act="gask" data-id="${g.id}" style="${step1?"display:none":""}">ネタバレを見る(まずは見方の一言だけ)</button>
       <div class="confirm" id="gf_${g.id}">「第4Qからで十分」「フルハイライトで十分」みたいな見方の一言だけ出すよ。スコアと勝敗は出ないけど、終盤もつれたか・大逆転があったかくらいはわかる。<div class="acts"><button class="no" data-act="gcancel" data-id="${g.id}">やめる</button><button class="yes" data-act="gshow" data-id="${g.id}">見る</button></div></div>`:""}
-      <div class="gbox" id="gb_${g.id}" style="${step1?"":"display:none"}"><div id="gt_${g.id}">${gd!=null?guideHTML(gd):""}</div>
+      <div class="gbox" id="gb_${g.id}" style="${step1?"":"display:none"}"><div id="gt_${g.id}">${gd!=null?guideHTML(gd):""}</div><div id="qc_${g.id}">${catchHTML(g)}</div>
       <button class="btn warn" data-act="ask" data-id="${g.id}" style="${seen?"display:none":""}">${two?"試合結果とスタッツを見る(ネタバレ注意)":"結果とスタッツを見る(ネタバレ注意)"}</button>
       <div class="confirm" id="cf_${g.id}">本当に見る? スコアと勝敗が表示されるよ。<div class="acts"><button class="no" data-act="cancel" data-id="${g.id}">やめる</button><button class="yes" data-act="show" data-id="${g.id}">見る</button></div></div></div>
       <div class="result" id="rs_${g.id}" style="${seen?"display:block":""}">${seen?resultHTML(g):""}</div></div>`;
@@ -718,6 +745,7 @@ function renderHelp(){
     <li>通知(9・12・15・18・21時ごろ)か「試合」タブで、<b>ランクが付いた試合</b>を確認</li>
     <li>SS・S・Aなら、ハイライトじゃなく<b>本編を見る</b>のがおすすめ</li>
     <li>見る時間がない日は、カードの「ネタバレを見る」で<b>見方の一言だけ</b>(「第4Qからで十分」「フルハイライトで十分」など)。スコアと勝敗は出ない。その下の「試合結果とスタッツを見る」で答え合わせ。点数の内訳と、そのランクになった理由も見られる</li>
+    <li>「第4Qから」「後半から」と出た試合は、<b>📊 第3Qまで(前半まで)のスタッツ</b>を先に見られる。見始めるところまでの選手の数字だけで、勝敗と最終スコアは出ない(そこまでの点差はわかる)</li>
     <li>ランクが自分の感覚とズレてたら、「投稿」タブから教えてね(基準を直す一番の材料になる)</li></ol>`)}
   ${sec("2. 各タブの見方",`<b>試合</b>:今日・昨日・おとといの試合。始まる前は期待度★1〜3(🔥はブーイング・大歓迎・古巣への凱旋・セレモニーなど会場が熱くなる試合で、★が1つ増えている。試合後のランクには関係なし)、終わったらランク。カードに欠場・出場微妙の選手と理由・復帰見込み。枠の色はホームチームのチームカラー。「ロスター・チームの強みを見る」でロスター。その日の試合が全部終わったらランク順に並び、ランクを隠している推しの試合は一番上。<br>
     <b>ティア表</b>:直近3日・週・月・シーズンごとのランキング。「ランク外も表示」で全試合。<br>
@@ -943,7 +971,7 @@ document.getElementById("main").addEventListener("click",e=>{
     if(g&&g.teams.some(t=>t.abbr===FAV)) store.set("watched_"+id,"1");
     store.set("seen_"+id,""); OPEN.delete(id);
     const rs=document.getElementById("rs_"+id), ask=rs.closest(".reveal").querySelector('[data-act="ask"]');
-    rs.innerHTML=""; rs.style.display="none"; if(ask) ask.style.display="";
+    rs.innerHTML=""; rs.style.display="none"; if(ask) ask.style.display=""; setQc(id);
     document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
   if(act==="jump"){document.getElementById("g_"+id)?.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(act==="dask"){const b=document.getElementById("tcf_"+id); if(b) b.style.display="block"; el.style.display="none"; return}
@@ -967,15 +995,25 @@ document.getElementById("main").addEventListener("click",e=>{
     const gb=document.getElementById("gb_"+id), gt=document.getElementById("gt_"+id);
     gb.style.display="block"; gt.innerHTML='<div class="d">読み込み中…</div>';
     fetch("b/"+id+".json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
-      .then(b=>{GUIDE.set(id,b.guide||""); gt.innerHTML=guideHTML(b.guide||"")})
+      .then(b=>{GUIDE.set(id,b.guide||""); if(b.from) FROM.set(id,b.from); gt.innerHTML=guideHTML(b.guide||""); setQc(id)})
       .catch(()=>{GUIDE.set(id,""); gt.innerHTML=guideHTML("")});
     return}
+  // 追いつき用のスタッツ(見始めるところまで)。確認してから別ファイルを読む
+  if(act==="qask"){document.getElementById("qf_"+id).style.display="block";el.style.display="none";return}
+  if(act==="qcancel"){setQc(id);return}
+  if(act==="qshow"){
+    const qc=document.getElementById("qc_"+id); qc.innerHTML='<div class="d">読み込み中…</div>';
+    fetch("q/"+id+".json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
+      .then(q=>{QS.set(id,q); setQc(id)})
+      .catch(()=>{qc.innerHTML='<div class="d">このスタッツはまだ出せないよ(次の更新で出るはず)</div>'});
+    return}
+  if(act==="qhide"){QS.delete(id); setQc(id); document.getElementById("g_"+id)?.scrollIntoView({block:"start"}); return}
   if(act==="ask"){document.getElementById("cf_"+id).style.display="block";el.style.display="none";return}
   if(act==="cancel"){document.getElementById("cf_"+id).style.display="none";el.closest(".reveal").querySelector('[data-act="ask"]').style.display="";return}
   if(act==="show"){
     const g=allGames().find(x=>x.id===id);
     const rs=document.getElementById("rs_"+id); rs.innerHTML=resultHTML(g); rs.style.display="block"; loadBd(id);
-    document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1"); OPEN.add(id);
+    document.getElementById("cf_"+id).style.display="none"; store.set("seen_"+id,"1"); OPEN.add(id); setQc(id);
     const ga=document.querySelector(`[data-act="gask"][data-id="${id}"]`); if(ga) ga.style.display="none";
     if(g.favorite){computeTiers();render();document.getElementById("g_"+id)?.scrollIntoView({block:"start"})}   // 結果を見た推しの試合はもう隠さない
   }

@@ -9,6 +9,7 @@ scripts/bsky_daily.json
 scripts/alert.txt
 scripts/cache/
 docs/b/
+docs/q/
 docs/cal/
 scripts/prenotify.txt
 scripts/prenotify.json
