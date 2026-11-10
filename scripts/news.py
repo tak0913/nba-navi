@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """移籍ニュース(トレード)を集める。
 
-- 確定:ESPNの「選手の移籍・契約の一覧」(transactions)から、トレード(Acquired / trade)だけ拾う
+- 確定:ESPNの「選手の移籍・契約の一覧」(transactions)から、トレード(Acquired / Traded / trade)だけ拾う
 - 報道:ESPNのニュース記事のうち、書いた人が Shams Charania で、見出しがトレードの話のものだけ拾う
   (Xは使えないので、シャムズのESPN記事で代わりにする。Xの速報が全部記事になるわけではない)
 
@@ -118,57 +118,73 @@ def sentences(desc):
 
 
 ACQ = re.compile(r"^Acquired (.+?) from (?:the )?(.+?)(?: (?:in exchange )?for (.+))?$")
+TRD = re.compile(r"^Traded (.+?) to (?:the )?(.+?)(?: (?:in exchange )?for (.+))?$")
+IS_TRADE = re.compile(r"\bAcquired\b|\bTraded\b|\btrade\b")   # 移籍の一覧のうち、トレードの行
+
+
+def _moves(team, desc, tinfo):
+    """トレードの文を「誰が・何を・誰から・見返りに何を」に直す。[(手に入れたチーム, 何を, 出したチーム, 見返り)]
+    ESPNの書き方は2つある:
+      手に入れた側の行「Acquired G X from Chicago Bulls for G Y.」
+      出した側の行    「Traded G X to the Oklahoma City Thunder.」(手に入れた側の行が出ないことがある。11/8 Nique Clifford)
+    トレードの文が全部きれいに読めたときだけ返す。1つでも読めなければ None(英語の原文だけ出す)"""
+    out = []
+    for s in sentences(desc):
+        if s.startswith("Acquired"):
+            m = ACQ.match(s)
+        elif s.startswith("Traded"):
+            m = TRD.match(s)
+        else:
+            continue
+        if not m:
+            return None
+        what, other, give = m.group(1), m.group(2), m.group(3)
+        if " in a " in other or " and " in other or (give and " in a " in give):   # 三角トレードなどは原文だけ
+            return None
+        oab = find_team(other, tinfo)
+        if not oab:
+            return None
+        out.append((team, what, oab, give) if s.startswith("Acquired") else (oab, what, team, give))
+    return out or None
 
 
 def trade_ja(team, desc, tinfo, ja):
     """「Acquired G X from Chicago Bulls for G Y.」→「ホーネッツが X を獲得(ブルズから。見返り:Y)」
-    「Acquired …」の文が全部きれいに読めたときだけ日本語にする。1つでも読めなければ None(英語の原文だけ出す)
+    「Traded G X to the Oklahoma City Thunder.」(キングスの行)→「サンダーが X を獲得(キングスから)」
+    トレードの文が全部きれいに読めたときだけ日本語にする。1つでも読めなければ None(英語の原文だけ出す)
     戻り値:(日本語, [相手チーム])"""
-    acq = [s for s in sentences(desc) if s.startswith("Acquired")]
-    if not acq:
+    mv = _moves(team, desc, tinfo)
+    if not mv:
         return None
     parts, others = [], []
-    for s in acq:
-        m = ACQ.match(s)
-        if not m:
-            return None
-        what, frm, give = m.group(1), m.group(2), m.group(3)
-        if " in a " in frm or " and " in frm or (give and " in a " in give):   # 三角トレードなどは原文だけ
-            return None
-        fab = find_team(frm, tinfo)
-        if not fab:
-            return None
-        t = f"{ja_assets(what)} を獲得({ja.get(fab, fab)}から"
+    for getter, what, giver, give in mv:
+        t = f"{ja_assets(what)} を獲得({ja.get(giver, giver)}から"
         if give:
             t += f"。見返り:{ja_assets(give)}"
-        parts.append(t + ")")
-        others.append(fab)
-    return f"{ja.get(team, team)}が " + "/".join(parts), others
+        parts.append((getter, t + ")"))
+        other = giver if getter == team else getter
+        if other not in others:
+            others.append(other)
+    if all(g == parts[0][0] for g, _ in parts):
+        g = parts[0][0]
+        return f"{ja.get(g, g)}が " + "/".join(t for _, t in parts), others
+    return "/".join(f"{ja.get(g, g)}が {t}" for g, t in parts), others
 
 
 def trade_sides(team, desc, tinfo):
     """どのチームが何を手に入れたか。{"CHA": ["Rob Dillingham"], "CHI": ["Buddy Hield"]}
-    trade_ja と同じく、「Acquired …」の文が全部きれいに読めたときだけ。読めなければ None"""
-    acq = [s for s in sentences(desc) if s.startswith("Acquired")]
-    if not acq:
+    trade_ja と同じく、トレードの文が全部きれいに読めたときだけ。読めなければ None"""
+    mv = _moves(team, desc, tinfo)
+    if not mv:
         return None
     sides = {}
     add = lambda ab, txt: sides.setdefault(ab, []).extend(x for x in ja_assets(txt).split("・") if x and x not in sides.get(ab, []))
-    for s in acq:
-        m = ACQ.match(s)
-        if not m:
-            return None
-        what, frm, give = m.group(1), m.group(2), m.group(3)
-        if " in a " in frm or " and " in frm or (give and " in a " in give):
-            return None
-        fab = find_team(frm, tinfo)
-        if not fab:
-            return None
-        add(team, what)
+    for getter, what, giver, give in mv:
+        add(getter, what)
         if give:
-            add(fab, give)
+            add(giver, give)
         else:
-            sides.setdefault(fab, [])
+            sides.setdefault(giver, [])
     return sides
 
 
@@ -209,7 +225,7 @@ def merge(items, tinfo, ja):
     trades = sorted([i for i in items if i["kind"] == "trade"], key=lambda x: (x["date"], x["id"]))
     reports = sorted([i for i in items if i["kind"] == "report"], key=lambda x: (x["time"], x["id"]), reverse=True)
     tw = {x for t in tinfo.values() for x in re.findall(r"[A-Za-z]+", (t.get("city") or "") + " " + (t.get("nick") or ""))}
-    tw |= {"Acquired", "Received", "Waived", "Re", "LA", "L", "A", "Guardians", "Oklahoma", "City"}
+    tw |= {"Acquired", "Traded", "Received", "Waived", "Re", "LA", "L", "A", "Guardians", "Oklahoma", "City"}
 
     def names(en):   # 原文に出てくる選手名らしきもの(大文字で始まる2語以上。チーム名は除く)
         out = set()
@@ -294,7 +310,7 @@ def fetch_trades(tinfo, ja, season=None):
     out = []
     for t in d.get("transactions", []):
         desc = (t.get("description") or "").strip()
-        if not re.search(r"\bAcquired\b|\btrade\b", desc):
+        if not IS_TRADE.search(desc):
             continue
         ab = (t.get("team") or {}).get("abbreviation")
         if not ab:
@@ -351,12 +367,14 @@ def star_moves(items, stars):
     for it in items:
         if it["kind"] != "trade":
             continue
-        got = norm(" ".join(m.group(1) for s in sentences(it["en"]) for m in [re.match(r"Acquired (.+?) from ", s)] if m))
-        if not got:
-            continue
-        for key, (ab, name) in where.items():
-            if key and key in got and it["teams"][0] != ab:
-                out.append((it, name, ab, it["teams"][0]))
+        # 手に入れた側の行(Acquired … from)は teams[0] が新しいチーム。出した側の行(Traded … to)は teams[1]
+        for pat, idx in ((r"Acquired (.+?) from ", 0), (r"Traded (.+?) to ", 1)):
+            got = norm(" ".join(m.group(1) for s in sentences(it["en"]) for m in [re.match(pat, s)] if m))
+            if not got or len(it["teams"]) <= idx:
+                continue
+            for key, (ab, name) in where.items():
+                if key and key in got and it["teams"][idx] != ab:
+                    out.append((it, name, ab, it["teams"][idx]))
     return out
 
 

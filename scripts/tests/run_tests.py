@@ -158,6 +158,22 @@ def test_news():
     j = N.trade_ja("IND", "Acquired C Ivica Zubac from the L.A. Clippers for a 2026 first-round pick and three second round picks.", tinfo, ja)
     check("news.picks", j and j[0], "ペイサーズが Ivica Zubac を獲得(クリッパーズから。見返り:2026年の1巡目指名権・2巡目指名権×3)")
     check("news.three_team", N.trade_ja("CHA", "Acquired G X from Brooklyn and G Y from Miami in a three-team trade.", tinfo, ja), None)
+    # 出した側の行しか出ないトレード(11/8 Nique Clifford:「Traded …」を拾えず、移籍タブに出なかった)
+    tinfo3 = {**tinfo, "OKC": {"nick": "Thunder", "city": "Oklahoma City"}, "SAC": {"nick": "Kings", "city": "Sacramento"}}
+    ja3 = {**ja, "OKC": "サンダー", "SAC": "キングス"}
+    en3 = "Traded G Nique Clifford to the Oklahoma City Thunder."
+    check("news.traded_found", bool(N.IS_TRADE.search(en3)), True)
+    check("news.traded_not_waived", bool(N.IS_TRADE.search("Waived F Dalen Terry.")), False)
+    check("news.traded_ja", N.trade_ja("SAC", en3, tinfo3, ja3), ("サンダーが Nique Clifford を獲得(キングスから)", ["OKC"]))
+    check("news.traded_sides", N.trade_sides("SAC", en3, tinfo3), {"OKC": ["Nique Clifford"], "SAC": []})
+    check("news.traded_for", N.trade_ja("SAC", "Traded G X Y to Miami for a 2028 second-round pick.", tinfo3, ja3),
+          ("ヒートが X Y を獲得(キングスから。見返り:2028年の2巡目指名権)", ["MIA"]))
+    d3 = N.merge([{"id": "t:9", "kind": "trade", "date": "2026-11-08", "time": "2026-11-08T00:00:00Z", "teams": ["SAC", "OKC"], "en": en3},
+                  {"id": "t:8", "kind": "trade", "date": "2026-11-08", "time": "2026-11-08T00:00:00Z", "teams": ["OKC", "SAC"],
+                   "en": "Acquired G Nique Clifford from Sacramento for two second-round picks."}], tinfo3, ja3)
+    check("news.traded_merge", [(len(d3), d3[0]["sides"])], [(1, {"OKC": ["Nique Clifford"], "SAC": ["2巡目指名権×2"]})])
+    check("news.traded_star", [(n, o, t) for _, n, o, t in N.star_moves([{"kind": "trade", "teams": ["SAC", "OKC"], "en": en3, "date": "2026-11-08"}],
+                                                                       {"SAC": [{"name": "Nique Clifford"}]})], [("Nique Clifford", "SAC", "OKC")])
     ok = lambda h: bool(N.TRADE_WORDS.search(h)) and not N.SPOILER.search(h)
     check("news.report_ok", ok("Sources: Rockets trade Jalen Green to Suns"), True)
     check("news.report_score", ok("Heat beat Clippers 117-116 amid trade talk"), False)
