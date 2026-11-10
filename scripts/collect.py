@@ -441,7 +441,7 @@ def box_players(summary):
     return out
 
 
-# ---- 追いつき用のスタッツ(途中から見る人が、見始めるところまでの選手の数字だけ先に見られる) ----
+# ---- クォーターごとの選手スタッツ(見る人が自分で選んだクォーターだけ見られる) ----
 QSRC = {}   # 試合id → 試合の中身(この回に取り直した直近3日の終わった試合だけ)
 QKEYS = ("PTS", "REB", "AST", "STL", "BLK", "TO", "FGM", "FGA", "3PM", "3PA", "FTM", "FTA")
 QCHECK = {"PTS": "PTS", "REB": "REB", "AST": "AST", "STL": "STL", "BLK": "BLK", "TO": "TO"}
@@ -510,52 +510,38 @@ def period_stats(plays):
     return out
 
 
-def catchup_stats(summary, upto):
-    """第upto クォーターが終わった時点までの、選手ごとのスタッツ(追いつき用)。
+def quarter_stats(summary):
+    """クォーターごとの選手スタッツ(1クォーターにつき1つ。画面では見る人が自分で選んだクォーターだけ読み込む)。
+    戻り値:{クォーター番号: {"p": 番号, "teams": {チーム: [{"name", "starter", "s": [QKEYS の順の数], "approx"?}]}}}
     ネタバレ防止:
-    - upto より後のプレーは一切使わない。その時点までに記録に出てきた選手だけ載せる(先発は最初から載せる)
-    - 「出場なし」の印は付けない(最終結果から付けると「この人は最後まで出ない」「控えが後で出る=大差」がわかるので)
+    - 1つのクォーターの中身には、そのクォーターのプレーしか使わない(後のクォーターの数字は入れない)
+    - そのクォーターの記録に出てきた選手だけ載せる(先発は第1Qに必ず載せる)。「出場なし」の印は付けない
     - チームの合計点は入れない
     試合全体のボックススコアは、選手の名前・チーム・先発の結びつけと、数え方が合っているかの確認にだけ使う。
-    試合全体で数えた合計が公式と合わない選手の項目は approx に入れる(画面で「±1かも」)"""
+    試合全体で数えた合計が公式と合わない選手の項目は approx に入れる(画面で「＊ 1つくらいずれてるかも」)"""
     plays = summary.get("plays", [])
     box = box_players(summary)
     if not plays or not box:
-        return None
+        return {}
     st = period_stats(plays)
-    teams = {}
+    periods = sorted({q for per in st.values() for q in per})
+    out = {q: {"p": q, "teams": {ab: [] for ab in box}} for q in periods}
     for abbr, rows in box.items():
-        lst = []
         for r in rows:
             per = st.get(r["id"], {})
-            if not (r["starter"] or any(q <= upto for q in per)):
-                continue
-            tot = {k: sum(v.get(k, 0) for q, v in per.items() if q <= upto) for k in QKEYS}
             full = {k: sum(v.get(k, 0) for v in per.values()) for k in QKEYS}
             approx = [k for k, bk in QCHECK.items() if not r["dnp"] and int(num(r["stats"].get(bk, 0))) != full[k]]
             for bk, m, a in (("FG", "FGM", "FGA"), ("3PT", "3PM", "3PA"), ("FT", "FTM", "FTA")):
                 if not r["dnp"] and made_att(r["stats"].get(bk, "")) != (full[m], full[a]):
                     approx.append(bk)
-            row = {"name": r["name"], "starter": r["starter"], "PTS": tot["PTS"], "REB": tot["REB"], "AST": tot["AST"],
-                   "STL": tot["STL"], "BLK": tot["BLK"], "TO": tot["TO"], "FG": f"{tot['FGM']}-{tot['FGA']}",
-                   "3PT": f"{tot['3PM']}-{tot['3PA']}", "FT": f"{tot['FTM']}-{tot['FTA']}"}
-            if approx:
-                row["approx"] = approx
-            lst.append(row)
-        teams[abbr] = lst
-    return {"upto": upto, "teams": teams}
-
-
-def watch_from(guide):
-    """見方の一言から「第何クォーターから見るか」を取り出す(追いつき用のスタッツをどこまで出すか)。
-    最初から見る・ハイライトで十分のときは None(追いつく必要がない)"""
-    if not guide:
-        return None
-    if "第4Qから" in guide:
-        return 4
-    if "後半から" in guide:
-        return 3
-    return None
+            for q in periods:
+                if q not in per and not (q == 1 and r["starter"] and not r["dnp"]):
+                    continue
+                row = {"name": r["name"], "starter": r["starter"], "s": [per.get(q, {}).get(k, 0) for k in QKEYS]}
+                if approx:
+                    row["approx"] = approx
+                out[q]["teams"][abbr].append(row)
+    return out
 
 
 def has_aura(abbr, name):
@@ -1693,7 +1679,7 @@ def build_game(e, start, season, strong, roster_cache, summary=None):
     rec = None
     if completed and not failed:
         rec = score_record(e, start, summary, season, strong)
-        QSRC[e["id"]] = summary   # 追いつき用のスタッツ(write_breakdowns で使う)
+        QSRC[e["id"]] = summary   # クォーターごとのスタッツ(write_quarters で使う)
         box = box_players(summary)
         lines = {}
         for c in comp["competitors"]:
@@ -2283,8 +2269,6 @@ def write_breakdowns(records, out_dir):
     """結果を開いたときだけ読み込む「計算の内訳」(docs/b/<試合id>.json)。普段のデータには入れない"""
     d = os.path.join(out_dir, "b")
     os.makedirs(d, exist_ok=True)
-    qd = os.path.join(out_dir, "q")
-    os.makedirs(qd, exist_ok=True)
     W = CFG["buzz"]
     for r in records:
         if not r.get("bd"):
@@ -2298,23 +2282,23 @@ def write_breakdowns(records, out_dir):
         out["total"] = fs(r)
         out["why"] = why_line(out)
         out["guide"] = watch_guide(out, r.get("tier") or "-")
-        # 追いつき用:途中から見る試合だけ、見始めるところまでのスタッツを別ファイル(docs/q/<試合id>.json)に置く
-        qpath = os.path.join(qd, f"{r['id']}.json")
-        fr = watch_from(out["guide"])
-        cu = None
-        if fr and r["id"] in QSRC:
-            try:
-                cu = catchup_stats(QSRC[r["id"]], fr - 1)
-            except Exception:
-                cu = None
-        if cu:
-            out["from"] = fr
-            json.dump(cu, open(qpath, "w"), ensure_ascii=False, separators=(",", ":"))
-        elif os.path.exists(qpath):
-            os.remove(qpath)   # 見方が変わって要らなくなった分は消す(見始めより先の数字を残さない)
         v = list((RATINGS_DATA.get(str(r["id"])) or {}).values())
         out["votes"] = {k: v.count(k) for k in ("good", "ok", "bad")}
         json.dump(out, open(os.path.join(d, f"{r['id']}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
+
+
+def write_quarters(out_dir):
+    """クォーターごとの選手スタッツ(docs/q/<試合id>_<クォーター>.json)。この回に取り直した直近3日の終わった試合ぶん。
+    クォーターごとに別のファイルにして、見る人が選んだクォーターの数字だけがスマホに届くようにする"""
+    d = os.path.join(out_dir, "q")
+    os.makedirs(d, exist_ok=True)
+    for gid, sm in QSRC.items():
+        try:
+            qs = quarter_stats(sm)
+        except Exception:
+            continue
+        for q, obj in qs.items():
+            json.dump(obj, open(os.path.join(d, f"{gid}_{q}.json"), "w"), ensure_ascii=False, separators=(",", ":"))
 
 
 def main():
@@ -2464,6 +2448,7 @@ def main():
     out_dir = os.environ.get("OUT_DIR", HERE)
     json.dump(data, open(os.path.join(out_dir, "data.json"), "w"), ensure_ascii=False)
     write_breakdowns(records, out_dir)
+    write_quarters(out_dir)
     write_ics(days + future, out_dir)
 
     # 通知:持ち主用(config の favorites)

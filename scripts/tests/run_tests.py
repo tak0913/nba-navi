@@ -180,8 +180,9 @@ def test_news():
     check("news.merge_report", [r["en"] for r in ds[0].get("reports", [])], ["Sources: Bulls trading Dillingham to Hornets"])
 
 
-def test_catchup():
-    """追いつき用のスタッツ:数え方が公式と合うか/見始めより後の数字が混ざらないか"""
+def test_quarters():
+    """クォーターごとのスタッツ:数え方が公式と合うか/ほかのクォーターの数字が混ざらないか"""
+    PTS = C.QKEYS.index("PTS")
     for fn in sorted(os.listdir(os.path.join(HERE, "fixtures"))):
         with gzip.open(os.path.join(HERE, "fixtures", fn), "rt") as f:
             d = json.load(f)
@@ -191,24 +192,23 @@ def test_catchup():
         # 試合全体で数えた得点は、全員が公式のボックススコアと同じ
         bad = [r["name"] for rows in box.values() for r in rows if not r["dnp"]
                and int(C.num(r["stats"].get("PTS", 0))) != sum(v.get("PTS", 0) for v in st.get(r["id"], {}).values())]
-        check(f"catchup.{k}.pts", bad, [])
-        cu = C.catchup_stats(sm, 3)
+        check(f"quarters.{k}.pts", bad, [])
+        qs = C.quarter_stats(sm)
         comp = d["event"]["competitions"][0]
         side = {c["team"]["abbreviation"]: c["homeAway"] for c in comp["competitors"]}
-        last = [pl for pl in sm["plays"] if (pl.get("period") or {}).get("number", 9) <= 3][-1]
-        for ab, rows in cu["teams"].items():
-            # 第3Qまでの選手の得点の合計 = 第3Q終了時点のチームの得点(第4Qの得点が混ざっていない)
-            check(f"catchup.{k}.{ab}.q3", sum(r["PTS"] for r in rows), last["homeScore" if side[ab] == "home" else "awayScore"])
-            # 第3Qまでに出ていない選手(先発以外)は載せない。「出場なし」の印も付けない
-            early = {r["name"] for r in box[ab] if r["starter"] or any(q <= 3 for q in st.get(r["id"], {}))}
-            check(f"catchup.{k}.{ab}.who", {r["name"] for r in rows} - early, set())
-            check(f"catchup.{k}.{ab}.nodnp", any("dnp" in r for r in rows), False)
-        check(f"catchup.{k}.noscore", any(x in cu for x in ("score", "linescores")), False)
-    check("from.q4", C.watch_from("第4Qから(約40分)で十分"), 4)
-    check("from.q4b", C.watch_from("本編を最初から(約2時間15分)。時間がなければ第4Qから(約40分)"), 4)
-    check("from.half", C.watch_from("後半から(約1時間10分)"), 3)
-    check("from.full", C.watch_from("本編を最初から(約2時間15分)"), None)
-    check("from.hl", C.watch_from("フルハイライト(約10分)で十分"), None)
+        prev = {"home": 0, "away": 0}
+        for q in sorted(qs):
+            last = [pl for pl in sm["plays"] if (pl.get("period") or {}).get("number") == q][-1]
+            check(f"quarters.{k}.{q}.keys", sorted(qs[q]), ["p", "teams"])   # スコアなどは入れない
+            for ab, rows in qs[q]["teams"].items():
+                sd = side[ab]
+                # そのクォーターの選手の得点の合計 = そのクォーターだけのチームの得点(ほかのクォーターが混ざっていない)
+                check(f"quarters.{k}.{q}.{ab}.pts", sum(r["s"][PTS] for r in rows), last[sd + "Score"] - prev[sd])
+                # そのクォーターの記録に出ていない選手は載せない(第1Qの先発だけ別)。「出場なし」の印も付けない
+                ok = {r["name"] for r in box[ab] if q in st.get(r["id"], {}) or (q == 1 and r["starter"])}
+                check(f"quarters.{k}.{q}.{ab}.who", {r["name"] for r in rows} - ok, set())
+                check(f"quarters.{k}.{q}.{ab}.nodnp", any("dnp" in r for r in rows), False)
+            prev = {"home": last["homeScore"], "away": last["awayScore"]}
 
 
 def test_arena_return():
@@ -240,7 +240,7 @@ def test_arena_return():
 
 def main():
     update = "--update" in sys.argv
-    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_catchup, test_arena_return):
+    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_quarters, test_arena_return):
         try:
             t()
         except Exception as e:
