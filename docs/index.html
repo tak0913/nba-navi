@@ -185,6 +185,9 @@ th{color:var(--sub);font-weight:500}
 .nwh{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:5px;font-size:12px}
 .nwh .chip.fix{background:#2e7d32;color:#fff;font-weight:700}
 .nwh .chip.rep{background:#b26a00;color:#fff;font-weight:700}
+.nwh .chip.new{background:#d32f2f;color:#fff;font-weight:700}
+nav button .nb{display:inline-block;min-width:18px;margin-left:5px;padding:0 5px;border-radius:999px;background:#d32f2f;color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center;vertical-align:1px}
+.nwnew{font-size:13px;margin:0 0 8px;color:var(--sub)}
 .nwj{font-size:14px;line-height:1.55}
 .nwe{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.45}
 .nw a{display:inline-block;margin-top:6px;font-size:13px;color:var(--brand)}
@@ -265,7 +268,7 @@ th{color:var(--sub);font-weight:500}
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-10b";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-10c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 // 1段目のネタバレ(見方の一言だけ)を開いた試合。スマホには保存しない(別のタブ・別の日・アプリを離れたら閉じる)
@@ -400,11 +403,43 @@ function renderTrivia(){
     +`<h3>HC図鑑(30チームのヘッドコーチ)</h3><div class="d" style="margin-bottom:6px">チームを押すと、そのHCがどのチームと当たると因縁があるかが出るよ</div>${hc}`
     +`<div class="d" style="margin-top:10px">セレモニーやレジェンドの来場みたいな小話を知ってたら、「投稿」タブの「小話」から教えてね</div>`;
 }
-// ---- 移籍ニュース(news.json は移籍タブを開いたときだけ読む) ----
+// ---- 移籍ニュース(news.json はアプリを開いたときに読む。まだ見ていない件数を「移籍」のボタンに出すため) ----
 let NEWS=null, newsKind="all", newsFav=false;
 function loadNews(){
   fetch("news.json?t="+encodeURIComponent(DATA.generated_at)).then(r=>{if(!r.ok) throw 0; return r.json()})
-    .then(d=>{NEWS=d}).catch(()=>{NEWS={items:[],err:1}}).finally(()=>{if(view==="news") render()});
+    .then(d=>{NEWS=d}).catch(()=>{NEWS={items:[],err:1}}).finally(()=>{newsSeed();if(view==="news") render(); else navBadge()});
+}
+// まだ見ていない移籍ニュース。見たかどうかはこの端末に覚える(news_seen)。移籍タブを開いたら全部「見た」になる
+// 数えるのは「まとめた1枚」単位。確定のトレードは確定の行で見る(報道を見たあとに確定したら、もう一度新着になる。
+// 同じトレードの2つ目の行があとから足されても、新着には戻さない)
+let NEW_NOW=new Set();   // 今回開いたときに新着だったもの(開いている間は「新着」の印を出したままにする)
+function newsSeen(){try{return new Set(JSON.parse(store.get("news_seen")||"[]"))}catch(e){return new Set()}}
+function newsBase(it){const m=it.members&&it.members.length?it.members:[it.id];const t=m.filter(x=>String(x).startsWith("t:"));return t.length?t:m}
+function newsUnread(){
+  if(!NEWS||NEWS.err) return [];
+  const seen=newsSeen();
+  return (NEWS.items||[]).filter(it=>!newsBase(it).some(x=>seen.has(x)));
+}
+function newsSave(seen){
+  const live=new Set((NEWS.items||[]).flatMap(it=>it.members&&it.members.length?it.members:[it.id]));   // 画面から消えた古いものは忘れる
+  store.set("news_seen",JSON.stringify([...seen].filter(x=>live.has(x))));
+}
+function newsSeed(){   // はじめての端末:7日より前のものは「見た」ことにする(60日ぶん全部が新着にならないように)
+  if(!NEWS||NEWS.err||store.get("news_seen")!==null) return;
+  const cut=new Date(Date.now()-7*864e5).toISOString().slice(0,10), seen=new Set();
+  (NEWS.items||[]).forEach(it=>{if((it.date||"")<cut)(it.members&&it.members.length?it.members:[it.id]).forEach(x=>seen.add(x))});
+  newsSave(seen);
+}
+function navBadge(){
+  const b=document.querySelector('nav button[data-v="news"]'); if(!b) return;
+  const n=newsUnread().length;
+  b.innerHTML="移籍"+(n?`<span class="nb">${n>99?"99+":n}</span>`:"");
+  b.setAttribute("aria-label",n?`移籍(まだ見ていないもの ${n}件)`:"移籍");
+}
+function newsMarkRead(){
+  const un=newsUnread();
+  if(un.length){const seen=newsSeen(); un.forEach(it=>{NEW_NOW.add(it.id);(it.members&&it.members.length?it.members:[it.id]).forEach(x=>seen.add(x))}); newsSave(seen)}
+  navBadge();
 }
 function newsCard(it){
   const tj=ab=>(NEWS.team_ja||{})[ab]||DATA.teams[ab]||ab;
@@ -413,7 +448,7 @@ function newsCard(it){
   const rep=r=>`<li>${esc(r.en)} ${link(r.url)}</li>`;
   if(it.kind==="trade"){
     const tms=it.teams||[];
-    const head=`<div class="nwh"><span class="chip fix">確定</span><b class="nwt">${tms.length===2?`${esc(tj(tms[0]))} ⇄ ${esc(tj(tms[1]))}`:tms.length>2?`${tms.length}チームのトレード`:esc(tj(tms[0]||""))+"のトレード"}</b></div>`;
+    const head=`<div class="nwh">${NEW_NOW.has(it.id)?`<span class="chip new">新着</span>`:""}<span class="chip fix">確定</span><b class="nwt">${tms.length===2?`${esc(tj(tms[0]))} ⇄ ${esc(tj(tms[1]))}`:tms.length>2?`${tms.length}チームのトレード`:esc(tj(tms[0]||""))+"のトレード"}</b></div>`;
     let body;
     if(it.sides){
       body=`<div class="nws">`+tms.filter(ab=>ab in it.sides).map(ab=>{
@@ -428,11 +463,13 @@ function newsCard(it){
     return `<div class="nw" style="--tc:${tcol(tms[0])}">${head}${body}${reps}${orig}</div>`;
   }
   const more=(it.more||[]).length?`<details class="nwo"><summary>前の見出し(${it.more.length})</summary><ul>${it.more.map(rep).join("")}</ul></details>`:"";
-  return `<div class="nw" style="--tc:${tcol((it.teams||[])[0])}"><div class="nwh"><span class="chip rep">報道</span>${(it.teams||[]).map(chip).join("")}<span class="nwe" style="margin:0">まだ決まっていない話</span></div>
+  return `<div class="nw" style="--tc:${tcol((it.teams||[])[0])}"><div class="nwh">${NEW_NOW.has(it.id)?`<span class="chip new">新着</span>`:""}<span class="chip rep">報道</span>${(it.teams||[]).map(chip).join("")}<span class="nwe" style="margin:0">まだ決まっていない話</span></div>
     <div class="nwj">${esc(it.en)}</div><div class="nwft">${link(it.url)}<span class="nwe">⚠ 記事には試合結果が書いてあることも</span></div>${more}</div>`;
 }
 function renderNews(){
   if(!NEWS){loadNews(); return `<div class="empty">読み込み中…</div>`}
+  if(!NEWS.err) newsMarkRead();
+  const nnew=(NEWS.items||[]).filter(it=>NEW_NOW.has(it.id)).length;
   let items=(NEWS.items||[]).filter(it=>newsKind==="all"||(newsKind==="trade")===(it.kind==="trade"));
   if(newsFav&&FAV) items=items.filter(it=>(it.teams||[]).includes(FAV));
   const btn=(k,t)=>`<button data-act="nkind" data-k="${k}" class="${newsKind===k?"on":""}">${t}</button>`;
@@ -440,6 +477,7 @@ function renderNews(){
   const list=Object.keys(by).sort().reverse().map(d=>`<h3>${md(d)}</h3>${by[d].map(newsCard).join("")}`).join("");
   return `<div class="seg" style="margin-bottom:8px">${btn("all","全部")}${btn("trade","確定")}${btn("report","報道")}${FAV?`<button data-act="nfav" class="${newsFav?"on":""}">推し(${esc(FAV)})だけ</button>`:""}</div>
     <details class="nwhelp"><summary>このタブの見方</summary><div class="legend" style="margin:6px 0 0"><b>確定</b>=ESPNの移籍の一覧に載ったトレード(決まったこと)。同じトレードは1枚にまとめて、チームごとに「何を手に入れたか」を出してる。日本語は原文を機械的に直したもので、ややこしいトレードは英語のまま。<br><b>報道</b>=Shams Charania が書いたESPNの記事の見出し(まだ決まっていない話もある)。あとでトレードが決まったら、その確定のカードの下にまとめるよ。Xの速報が全部記事になるわけじゃないので、拾えない話もある。<br>試合結果が混ざらないように、報道は見出しだけ使って、スコアや勝ち負けの言葉がある見出しは出してない。直近60日分。</div></details>
+    ${nnew?`<div class="nwnew">まだ見ていなかったもの <b>${nnew}件</b>(赤い「新着」の印)</div>`:""}
     ${NEWS.err?`<div class="empty">移籍ニュースを読み込めなかった</div>`:list||`<div class="empty">${newsFav?"推しチームの":""}移籍ニュースはまだなし</div>`}`;
 }
 function previewHTML(g){
@@ -784,7 +822,7 @@ function renderHelp(){
     <b>ティア表</b>:直近3日・週・月・シーズンごとのランキング。「ランク外も表示」で全試合。<br>
     <b>殿堂</b>:SS候補と、30日後も語られて殿堂入りした試合。シーズンをまたいでずっと残る。<br>
     <b>エース表</b>:採点に使ってる各チームのエースと格。<br>
-    <b>移籍</b>:トレードのニュース。「確定」はESPNの移籍の一覧、「報道」は Shams Charania のESPN記事の見出し。推しチームのトレードと、エース表の選手が動くトレードは通知も来る。<br>
+    <b>移籍</b>:トレードのニュース。「確定」はESPNの移籍の一覧、「報道」は Shams Charania のESPN記事の見出し。推しチームのトレードと、エース表の選手が動くトレードは通知も来る。まだ見ていないものがあると、「移籍」のボタンに赤い数字で件数が出る(開くと消える。見たかどうかはこの端末に覚える)。<br>
     <b>設定</b>:推しチーム、通知の登録、最初の説明をもう一度見る。`)}
   ${sec("3. ネタバレ防止の仕組み",`・スコアと勝敗は、ボタンを押して<b>もう一度確認したときだけ</b>表示<br>
     ・通知に書くのは対戦カードとランクだけ<br>
@@ -1072,7 +1110,7 @@ document.getElementById("main").addEventListener("change",e=>{
 fetch("data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{
   try{ if(d.app_ver&&d.app_ver!==APP_VER&&sessionStorage.getItem("reloaded")!==d.app_ver){
     sessionStorage.setItem("reloaded",d.app_ver); location.replace(location.pathname+"?v="+encodeURIComponent(d.app_ver)); return } }catch(e){}
-  DATA=d;loadFav();computeTiers();render();if(!store.get("onboarded"))showOb(0)}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
+  DATA=d;loadFav();computeTiers();render();loadNews();if(!store.get("onboarded"))showOb(0)}).catch(()=>{document.getElementById("main").innerHTML='<div class="empty">データを読み込めなかった</div>'});
 </script>
 </body>
 </html>
