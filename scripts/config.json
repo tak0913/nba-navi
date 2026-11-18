@@ -138,7 +138,10 @@
     "max_games_per_run": 400,
     "_note": "余韻:同じ夜で一番騒がれたら+weight_up点、一番静かなら−weight_down点(静かでも見る価値は下がりにくいので下げ幅は小さく)。1日後・7日後・30日後の平均を使う。hall_min=殿堂入りに必要な30日後の余韻(0〜1)",
     "weight_up": 15,
-    "weight_down": 5
+    "weight_down": 5,
+    "bsky_refill_days": 40,
+    "bsky_refill_per_run": 60,
+    "_note_bsky": "Blueskyだけ測れなかった試合を、bsky_refill_days日前の夜までさかのぼって1回の更新でbsky_refill_per_run試合まで測り直す(Blueskyは後からでも日付で探せるので)"
   },
   "favorite_hide_hours": 24,
   "public_topic_prefix": "nbanavi-tak0913-",

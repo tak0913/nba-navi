@@ -254,9 +254,57 @@ def test_arena_return():
         C.get, C.CACHE_DIR = old_get, old_dir
 
 
+def test_bsky():
+    """Blueskyの余韻:ログインなしでは2ページ目に行かない/2ページ目で断られても1ページ目の数は残す/
+    1ページ目が取れなければ「測れなかった」/ログインできれば次のページも数える(2026-11-18)"""
+    import buzz as B, urllib.error
+    old = (B._get, B._bsky_login, B.urllib.request.urlopen, dict(B._BSKY), dict(B.BSKY_ERRORS))
+    A, H = {"nick": "Lakers"}, {"nick": "Celtics"}
+    d0 = dt.date(2026, 11, 1)
+    page = lambda i, cur: json.dumps({"posts": [{"uri": f"u{i}", "likeCount": 1}], **({"cursor": cur} if cur else {})})
+    try:
+        # ログインなし:1ページ目だけ(次のページを聞きにいかない)
+        B._bsky_login = lambda force=False: None
+        calls = []
+        B._get = lambda url: (calls.append(url), page(len(calls), "c1"))[1]
+        check("bsky.public_one_page", B.bluesky_engagement(A, H, d0, d0, 3), 2)
+        check("bsky.public_no_cursor", any("cursor" in u for u in calls), False)
+        # 1ページ目で断られたら測れなかった扱い(例外)
+        def deny(url):
+            raise urllib.error.HTTPError(url, 403, "x", {}, None)
+        B._get = deny
+        try:
+            B.bluesky_engagement(A, H, d0, d0, 3)
+            check("bsky.first_fail_raises", False, True)
+        except urllib.error.HTTPError:
+            pass
+        check("bsky.err_kind", B.err_kind(urllib.error.HTTPError("u", 429, "x", {}, None)), "429")
+        # ログインあり:次のページも読む。3ページ目で断られても2ページ分は残る
+        B._bsky_login = lambda force=False: "tok"
+        B._BSKY["token"] = "tok"
+        n = {"i": 0}
+
+        class R:
+            def __init__(self, b): self.b = b
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return self.b.encode()
+
+        def fake_open(req, timeout=0):
+            n["i"] += 1
+            if n["i"] == 3:
+                raise urllib.error.HTTPError(req.full_url, 403, "x", {}, None)
+            return R(page(n["i"], "c"))
+        B.urllib.request.urlopen = fake_open
+        check("bsky.login_pages", B.bluesky_engagement(A, H, d0, d0, 3), 4)
+    finally:
+        B._get, B._bsky_login, B.urllib.request.urlopen = old[0], old[1], old[2]
+        B._BSKY.clear(); B._BSKY.update(old[3]); B.BSKY_ERRORS.clear(); B.BSKY_ERRORS.update(old[4])
+
+
 def main():
     update = "--update" in sys.argv
-    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_quarters, test_arena_return):
+    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_quarters, test_arena_return, test_bsky):
         try:
             t()
         except Exception as e:

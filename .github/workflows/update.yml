@@ -71,6 +71,10 @@ jobs:
 
       - name: データ収集と採点
         id: collect
+        env:
+          # 余韻のBluesky検索はログインが要る(ログインなしだと2ページ目以降を断られる)。月末投票と同じアカウント
+          BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
+          BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
         run: |
           cd scripts
           EXTRA=""

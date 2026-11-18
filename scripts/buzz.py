@@ -9,7 +9,7 @@
 人気チームの偏りを抑えるため、生の数ではなく「同じ夜の試合の中で何番目か」に直し、
 複数の指標の真ん中の値を使う。結果の中身(スコア等)は一切保存しない。
 """
-import re, json, html, urllib.request, urllib.parse, datetime as dt, statistics
+import re, json, html, urllib.request, urllib.error, urllib.parse, datetime as dt, statistics
 
 UA = {"User-Agent": "Mozilla/5.0", "Accept-Language": "en-US"}
 
@@ -92,24 +92,102 @@ def combine(pcts):
 
 
 # ---------- SNS(v2) ----------
+# Blueskyの検索は、ログインなしだと「次のページ」(cursor)を断られる(2026年夏ごろから。403)。
+# 人気の試合ほど投稿が100件を超えて2ページ目に進むので、そこで全体がエラーになり、
+# 「盛り上がった試合ほど測れない」状態になっていた(2026-11-18 持ち主への知らせで発覚)。
+# → 公式アカウントのアプリパスワード(BSKY_HANDLE / BSKY_APP_PASSWORD)でログインして検索する。
+#   ログインできないときはログインなしで1ページ目だけ数える。2ページ目以降で断られても、それまでの数は使う。
+BSKY_PDS = "https://bsky.social/xrpc/"
+BSKY_PUBLIC_SEARCH = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+_BSKY = {"token": None, "tried": False, "mode": None}
+BSKY_ERRORS = {}   # エラーの種類ごとの回数(ログと持ち主への知らせ用。中身は出さない)
+
+
+def err_kind(e):
+    """エラーの種類を短い文字に(403、429、timeout など)"""
+    code = getattr(e, "code", None)
+    return str(code) if code else type(e).__name__
+
+
+def _note_err(e):
+    k = err_kind(e)
+    BSKY_ERRORS[k] = BSKY_ERRORS.get(k, 0) + 1
+
+
+def _bsky_login(force=False):
+    """ログインして合言葉(accessJwt)を覚える。1回の更新で1度だけ試す(force で取り直し)"""
+    import os
+    if _BSKY["tried"] and not force:
+        return _BSKY["token"]
+    _BSKY["tried"] = True
+    _BSKY["token"] = None
+    handle, pw = os.environ.get("BSKY_HANDLE"), os.environ.get("BSKY_APP_PASSWORD")
+    if not handle or not pw:
+        return None
+    try:
+        req = urllib.request.Request(BSKY_PDS + "com.atproto.server.createSession",
+                                     data=json.dumps({"identifier": handle, "password": pw}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            _BSKY["token"] = json.load(r)["accessJwt"]
+    except Exception as e:
+        _note_err(e)
+        BSKY_ERRORS["login_failed"] = BSKY_ERRORS.get("login_failed", 0) + 1
+    return _BSKY["token"]
+
+
+def _bsky_search(params):
+    """searchPosts を1回呼ぶ。ログインできていればログインして(次のページも読める)、
+    できなければログインなしで。ログインの合言葉が切れていたら1度だけ取り直す"""
+    qs = urllib.parse.urlencode(params)
+    token = _bsky_login()
+    if token:
+        for attempt in (0, 1):
+            req = urllib.request.Request(BSKY_PDS + "app.bsky.feed.searchPosts?" + qs,
+                                         headers={**UA, "Authorization": "Bearer " + _BSKY["token"]})
+            try:
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    _BSKY["mode"] = "login"
+                    return json.load(r)
+            except urllib.error.HTTPError as e:
+                if e.code in (400, 401) and attempt == 0 and _bsky_login(force=True):
+                    continue   # 合言葉が切れた → 取り直してもう1回
+                if "cursor" in params:
+                    raise
+                _note_err(e)   # ログインしての検索がだめ → 1ページ目はログインなしで試す
+                break
+    if "cursor" in params:
+        raise RuntimeError("no_login_cursor")   # ログインなしでは次のページは断られるので、聞きにいかない
+    _BSKY["mode"] = _BSKY["mode"] or "public"
+    return json.loads(_get(BSKY_PUBLIC_SEARCH + "?" + qs))
+
+
 def bluesky_engagement(team_a, team_b, start, end, max_pages=3, names_a=(), names_b=()):
-    """Blueskyで、期間内に両チーム名を含む投稿の 数・いいね・リポスト を合計する(登録不要の公開API)。
-    「KDえぐい」みたいに選手名だけの投稿も拾うため、主力選手名+相手チーム名でも探す(同じ投稿は1回だけ数える)"""
-    base = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+    """Blueskyで、期間内に両チーム名を含む投稿の 数・いいね・リポスト を合計する。
+    「KDえぐい」みたいに選手名だけの投稿も拾うため、主力選手名+相手チーム名でも探す(同じ投稿は1回だけ数える)。
+    1ページ目が1つも取れなければエラー(=測れなかった)。2ページ目以降で失敗したら、そこまでの数を使う"""
     since = f"{start.isoformat()}T00:00:00Z"
     until = f"{end.isoformat()}T00:00:00Z"
     queries = [(f'{team_a["nick"]} {team_b["nick"]}', max_pages)]
     for mine, opp in ((names_a, team_b), (names_b, team_a)):
         for n in list(mine)[:2]:
             queries.append((f'"{n}" {opp["nick"]}', 1))
-    total, seen = 0, set()
+    total, seen, ok = 0, set(), False
     for q, pages in queries:
         cursor = None
-        for _ in range(pages):
-            url = f"{base}?q={urllib.parse.quote(q)}&since={since}&until={until}&limit=100&sort=top"
+        for page in range(pages):
+            params = {"q": q, "since": since, "until": until, "limit": 100, "sort": "top"}
             if cursor:
-                url += "&cursor=" + urllib.parse.quote(cursor)
-            d = json.loads(_get(url))
+                params["cursor"] = cursor
+            try:
+                d = _bsky_search(params)
+            except Exception as e:
+                if not (isinstance(e, RuntimeError) and str(e) == "no_login_cursor"):
+                    _note_err(e)
+                if not ok:
+                    raise   # 一番大事な「両チーム名」の1ページ目が取れない → 測れなかった扱い
+                break   # この検索はここまで(数えた分は残す)
+            ok = True
             for p in d.get("posts", []):
                 if p.get("uri") in seen:
                     continue

@@ -766,6 +766,8 @@ SIGNALS = ("news", "national", "yt", "clips", "bsky")   # ニュース/地元以
 STATS = {k: 0 for k in SIGNALS}                          # 取れた件数(ログ用。中身は出さない)
 TRIES = {k: 0 for k in SIGNALS}                          # 測ろうとした件数(見張り用)
 NONZERO = {k: 0 for k in SIGNALS}                        # 0より大きい値が取れた件数(取れても全部0なら壊れている疑い)
+ERRKIND = {k: {} for k in SIGNALS}                       # 測れなかった理由(403・429・timeout など)の回数。原因を見分けるため
+BSKY_REFILL = {"tries": 0, "ok": 0}                      # Blueskyの測り直し(取りこぼしの穴埋め)の件数
 MOMENT_STATS = {"tries": 0, "ok": 0}
 def latest_buzz(r):
     """測れている分(1日後・7日後・30日後)の平均"""
@@ -823,6 +825,68 @@ def team_info():
                                         "color": team_color(t["team"])} for t in teams}
 
 
+def bsky_measure(B, a, b, gd, day, na, nb):
+    """Blueskyの余韻(day日後あたり=前後1日の投稿)。測り直しでも同じ期間で数える"""
+    s = gd + dt.timedelta(days=max(0, day - 1))
+    return B.bluesky_engagement(a, b, s, gd + dt.timedelta(days=day + 2), 3, na, nb)
+
+
+def refill_bsky(records, today, limit):
+    """Blueskyだけ測れなかった試合を測り直して、その夜の余韻を付け直す(2026-11-18 追加)。
+    Blueskyの投稿は後から日付を指定して探せるので、YouTubeの再生数と違って取りこぼしを後で埋められる。
+    ほかの指標は前に測った数(buzz_raw)をそのまま使う。BSKY_REFILL_DAYS 日より前の夜は触らない"""
+    import time
+    import buzz as B
+    days_back = CFG["buzz"].get("bsky_refill_days", 40)
+    nights = {}
+    for r in records:
+        nights.setdefault((r["date"], r["type"]), []).append(r)
+    todo = []
+    for (date, typ), games in sorted(nights.items(), reverse=True):   # 新しい夜から
+        gd = dt.date.fromisoformat(date)
+        if (today - gd).days > days_back:
+            continue
+        for day in (1, 7, 30):
+            key = f"d{day}"
+            raws = [(g.get("buzz_raw") or {}).get(key) for g in games]
+            if not all(isinstance(x, dict) for x in raws):
+                continue   # 前の数が残っていない夜は付け直せない(全部測り直しは measure_buzz の仕事)
+            miss = [g for g in games if g["buzz_raw"][key].get("bsky") is None]
+            if miss:
+                todo.append((gd, day, key, games, miss))
+    if not todo:
+        return
+    info = team_info()
+    done = 0
+    for gd, day, key, games, miss in todo:
+        if done >= limit:
+            break
+        got = 0
+        for g in miss:
+            BSKY_REFILL["tries"] += 1
+            try:
+                a, b = info[g["away"]], info[g["home"]]
+                v = bsky_measure(B, a, b, gd, day, star_names(g["away"]), star_names(g["home"]))
+            except Exception as e:
+                ek = B.err_kind(e)
+                ERRKIND["bsky"][ek] = ERRKIND["bsky"].get(ek, 0) + 1
+                v = None
+            if v is not None:
+                g["buzz_raw"][key]["bsky"] = v
+                BSKY_REFILL["ok"] += 1
+                got += 1
+            done += 1
+            time.sleep(0.4)
+        if got:
+            raw = {g["id"]: g["buzz_raw"][key] for g in games}
+            pcts = {k: B.percentile_within({gid: v.get(k) for gid, v in raw.items()}) for k in SIGNALS}
+            for g in games:
+                g.setdefault("buzz", {"d1": None, "d7": None, "d30": None})
+                g["buzz"][key] = B.combine([pcts[k].get(g["id"]) for k in SIGNALS])
+        if BSKY_REFILL["tries"] >= 6 and BSKY_REFILL["ok"] == 0:
+            break   # まだ全然測れない → 今回はあきらめる(次の回でまた試す)
+
+
 def measure_buzz(records, today, limit):
     """1日後・7日後・30日後の余韻を、同じ夜の試合と比べて測る(古い順に limit 試合まで)"""
     import time
@@ -845,21 +909,22 @@ def measure_buzz(records, today, limit):
                 try:
                     a, b = info[g["away"]], info[g["home"]]
                     raw[g["id"]] = {}
-                    def safe(f, *args):
+                    def safe(k, f, *args):
                         try:
                             return f(*args)
-                        except Exception:
+                        except Exception as e:
+                            ek = B.err_kind(e)
+                            ERRKIND[k][ek] = ERRKIND[k].get(ek, 0) + 1
                             return None
-                    n = safe(B.news_signal, a, b, gd, day)
+                    n = safe("news", B.news_signal, a, b, gd, day)
                     raw[g["id"]]["news"], raw[g["id"]]["national"] = n if n else (None, None)
-                    raw[g["id"]]["yt"] = safe(B.youtube_views, a, b, gd) if day <= 7 else None
+                    raw[g["id"]]["yt"] = safe("yt", B.youtube_views, a, b, gd) if day <= 7 else None
                     na, nb = star_names(g["away"]), star_names(g["home"])
                     ro = roster_names(g["id"]) if day <= 7 else {}
-                    clip = safe(B.youtube_clip_views, a, b, gd, na, nb, g["away"], g["home"],
+                    clip = safe("clips", B.youtube_clip_views, a, b, gd, na, nb, g["away"], g["home"],
                                 ro.get(g["away"], ()), ro.get(g["home"], ())) if day <= 7 else None
                     raw[g["id"]]["clips"] = clip[0] if clip else None
-                    s = gd + dt.timedelta(days=max(0, day - 1))
-                    raw[g["id"]]["bsky"] = safe(B.bluesky_engagement, a, b, s, gd + dt.timedelta(days=day + 2), 3, na, nb)
+                    raw[g["id"]]["bsky"] = safe("bsky", bsky_measure, B, a, b, gd, day, na, nb)
                 except Exception:
                     raw[g["id"]] = {k: None for k in SIGNALS}
                 time.sleep(0.4)
@@ -1951,6 +2016,15 @@ ALERT_STATE = os.path.join(HERE, "alert_state.json")   # 同じ知らせを何�
 SIGNAL_JA = {"news": "ニュース", "national": "地元以外のニュース", "yt": "フルハイライト動画", "clips": "切り抜き動画", "bsky": "Bluesky"}
 
 
+def _why(k):
+    """測れなかった理由の内訳(例:「理由:403×5、timeout×1」)。403=断られた、429=回数制限"""
+    e = ERRKIND.get(k) or {}
+    if not e:
+        return ""
+    words = {"403": "403=断られた", "429": "429=回数制限", "401": "401=ログインだめ"}
+    return "(理由:" + "、".join(f"{words.get(x, x)}×{c}" for x, c in sorted(e.items(), key=lambda kv: -kv[1])) + ")"
+
+
 def health_alerts():
     """余韻の測定が壊れていないかの見張り。測ろうとした数が少ないときは判定しない"""
     out = []
@@ -1959,11 +2033,20 @@ def health_alerts():
         if n < 6:
             continue
         if STATS[k] / n < 0.3:
-            out.append(f"・{SIGNAL_JA[k]}:{n}試合中{STATS[k]}試合しか測れてない(サイトの作りが変わったかも)")
+            out.append(f"・{SIGNAL_JA[k]}:{n}試合中{STATS[k]}試合しか測れてない{_why(k)}")
         elif STATS[k] and NONZERO[k] == 0:
             out.append(f"・{SIGNAL_JA[k]}:{STATS[k]}試合測れたのに全部0(読み取り方が壊れてるかも)")
     if MOMENT_STATS["tries"] >= 6 and MOMENT_STATS["ok"] / MOMENT_STATS["tries"] < 0.3:
         out.append(f"・名場面(切り抜き):{MOMENT_STATS['tries']}試合中{MOMENT_STATS['ok']}試合しか測れてない")
+    try:
+        import buzz as B
+        if TRIES["bsky"] + BSKY_REFILL["tries"] and B._BSKY["tried"] and not B._BSKY["token"]:
+            out.append("・Bluesky:公式アカウントでログインできなかった(BSKY_HANDLE / BSKY_APP_PASSWORD を確かめて)。"
+                       "ログインなしで1ページ目だけ数えてる")
+    except Exception:
+        pass
+    if BSKY_REFILL["tries"] >= 6 and BSKY_REFILL["ok"] / BSKY_REFILL["tries"] < 0.3:
+        out.append(f"・Bluesky の測り直し:{BSKY_REFILL['tries']}試合中{BSKY_REFILL['ok']}試合しか埋まってない{_why('bsky')}")
     return out
 
 
@@ -2479,6 +2562,10 @@ def main():
     allrec = list(archive.values())
     if "--no-buzz" not in sys.argv:
         measure_buzz([r for r in allrec if not is_hidden(r)], today, CFG["buzz"]["max_games_per_run"])
+        try:
+            refill_bsky([r for r in allrec if not is_hidden(r)], today, CFG["buzz"].get("bsky_refill_per_run", 60))
+        except Exception as e:
+            print("bsky refill failed:", type(e).__name__)
         measure_moments([r for r in allrec if not is_hidden(r)], today)
     moment_scores(allrec)   # 測らない回(--no-buzz)も、今ある再生数で付け直す
     send_alerts(today, allrec)
@@ -2569,6 +2656,12 @@ def main():
     if any(STALE.values()):
         print("取れずに前回の分で埋めた: " + ", ".join(f"{k}={v}" for k, v in STALE.items()))
     print("buzz signals collected (counts only): " + ", ".join(f"{k}={v}" for k, v in STATS.items()))
+    try:
+        import buzz as B
+        print("bsky mode:", B._BSKY["mode"], "| errors:", ERRKIND, "| bsky inner errors:", B.BSKY_ERRORS,
+              "| refill:", BSKY_REFILL)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
