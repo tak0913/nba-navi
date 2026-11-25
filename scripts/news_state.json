@@ -2,6 +2,20 @@
 "seeded": true,
 "items": [
 {
+"id": "r:50595534",
+"kind": "report",
+"date": "2026-11-25",
+"time": "2026-11-25T18:52:16Z",
+"teams": [
+"MIL",
+"ORL"
+],
+"ja": null,
+"en": "Ex-Bucks guard Kevin Porter Jr. finalizing 2-year deal to join Magic, agent says",
+"url": "https://www.espn.com/nba/story/_/id/50595534/agent-kevin-porter-jr-finalizing-2-year-deal-magic",
+"src": "Shams Charania(ESPN)"
+},
+{
 "id": "t:b0e9f2b66cf6",
 "kind": "trade",
 "date": "2026-11-08",
