@@ -27,32 +27,6 @@
 "ja": "サンダーが Nique Clifford を獲得(キングスから)",
 "en": "Traded G Nique Clifford to the Oklahoma City Thunder.",
 "url": null
-},
-{
-"id": "t:5bbcdd22f56b",
-"kind": "trade",
-"date": "2026-09-27",
-"time": "2026-09-27T00:00:00Z",
-"teams": [
-"CHI",
-"CHA"
-],
-"ja": "ブルズが Buddy Hield を獲得(ホーネッツから。見返り:Rob Dillingham)",
-"en": "Acquired G Buddy Hield from Charlotte in exchange for G Rob Dillingham.",
-"url": null
-},
-{
-"id": "t:108379e36e5a",
-"kind": "trade",
-"date": "2026-09-27",
-"time": "2026-09-27T00:00:00Z",
-"teams": [
-"CHA",
-"CHI"
-],
-"ja": "ホーネッツが Rob Dillingham を獲得(ブルズから。見返り:Buddy Hield)",
-"en": "Acquired G Rob Dillingham from Chicago Bulls for G Buddy Hield.",
-"url": null
 }
 ],
 "star_alerted": []
