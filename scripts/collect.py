@@ -790,10 +790,18 @@ def moment_bonus(r):
     return m[0] or 0
 
 
+def spot_bonus(r):
+    """話題の選手(選手ごとの反応)の点。名場面ボーナスと合わせて cap_with_moment まで"""
+    sp = (r.get("spot") or {}).get("pts") or 0
+    if not sp:
+        return 0
+    return max(0, min(sp, CFG["spot"]["cap_with_moment"] - moment_bonus(r)))
+
+
 def fs(r):
-    """最終点 = 試合の中身 + 余韻(同じ夜で真ん中なら±0、一番騒がれたら+重み、一番静かなら−重み) + 名場面ボーナス"""
+    """最終点 = 試合の中身 + 余韻(同じ夜で真ん中なら±0、一番騒がれたら+重み、一番静かなら−重み) + 名場面ボーナス + 話題の選手"""
     b = latest_buzz(r)
-    base = r["content"] + moment_bonus(r)
+    base = r["content"] + moment_bonus(r) + spot_bonus(r)
     if b is None:
         return round(base, 1)
     w = CFG["buzz"]["weight_up"] if b >= 0.5 else CFG["buzz"]["weight_down"]
@@ -1018,6 +1026,47 @@ def moment_scores(records):
         if h["t"] >= M["min_views"]:
             bonus = M["bonus_big"] if ratio >= M["ratio_big"] else M["bonus"] if ratio >= M["ratio"] else 0
         r["moment"] = [bonus, round(ratio, 2), MOMENT_VER]
+    spot_scores(records, hist)
+
+
+def player_clip_bases(hist):
+    """選手ごとの、試合ごとの切り抜き再生数(その選手の名前が題名にある動画の合計)。{名前: [(日付, 試合id, 再生数)]}"""
+    out = {}
+    for gid, h in hist.items():
+        for n, x in (h.get("p") or {}).items():
+            if isinstance(x, list) and len(x) > 1 and isinstance(x[1], (int, float)):
+                out.setdefault(n, []).append((h["d"], gid, x[1]))
+    return out
+
+
+def spot_scores(records, hist):
+    """話題の選手:その選手の切り抜き再生数が「その選手にしては」何倍伸びたか(選手のそれより前の試合の真ん中の値と比べる)。
+    点の表(スターの活躍)に出ない種類のすごさ(年齢・節目・決め方・万能の活躍・因縁のやりあい)を、見た人の反応で拾う。
+    人気の選手は普段から伸びるので、生の再生数ではなく倍率で見る。1本の動画にたまたま名前が出ただけの選手を拾わないよう、
+    その試合の切り抜き全体のうち min_share 以上がその選手の動画であることも条件にする"""
+    import statistics
+    S = CFG["spot"]
+    per = player_clip_bases(hist)
+    for r in records:
+        r.pop("spot", None)
+        h = hist.get(r["id"])
+        if not h or not h.get("t"):
+            continue
+        who = []
+        for n, x in (h.get("p") or {}).items():
+            v = x[1] if isinstance(x, list) and len(x) > 1 else 0
+            if not isinstance(v, (int, float)) or v < S["min_views"] or v < S["min_share"] * h["t"]:
+                continue
+            prior = [pv for d, g, pv in per.get(n, ()) if d < h["d"] and g != r["id"]]
+            if len(prior) < S["min_samples"]:
+                continue
+            ratio = v / max(statistics.median(prior), S["base_floor"])
+            if ratio >= S["ratio"]:
+                who.append({"who": n, "team": x[0], "ratio": round(ratio, 1), "views": int(v)})
+        if who:
+            who.sort(key=lambda w: -w["ratio"])
+            pts = S["bonus_big"] if who[0]["ratio"] >= S["ratio_big"] else S["bonus"]
+            r["spot"] = {"pts": pts, "who": who[:3]}
 
 
 def measure_moments(records, today):
@@ -1064,7 +1113,8 @@ def assign_tiers_many(jobs, prev_records, today):
     if isinstance(prev_records, list):
         for r in prev_records:
             prev.setdefault(r["type"], []).append(fs(r))
-    opts = {"T": T, "R": R, "prev": prev, "today": today.isoformat(), "upgrades": load_json(UPGRADES, {})}
+    opts = {"T": T, "R": R, "prev": prev, "today": today.isoformat(), "upgrades": load_json(UPGRADES, {}),
+            "judged": judged_public(), "claude_max_steps": CFG["judge"]["claude_max_steps"]}
     payload = {"jobs": [{"records": [{"id": r["id"], "date": r["date"], "season": r["season"], "type": r["type"],
                                        "score": fs(r), "legend": bool(r.get("legend")), "hall_ok": hall_ok(r)}
                                       for r in recs], "opts": opts} for recs in jobs]}
@@ -1078,6 +1128,8 @@ def assign_tiers_many(jobs, prev_records, today):
                 r[k] = o[k]
             if o["up_from"]:
                 r["up_from"], r["story"] = o["up_from"], o["story"]
+            if o.get("j_by"):
+                r["j_from"], r["j_by"] = o["j_from"], o["j_by"]
     return jobs
 
 
@@ -1088,6 +1140,71 @@ def assign_tiers(records, prev_records, today):
 
 TIER_RANK = {"-": 0, "C": 1, "B": 2, "A": 3, "S": 4, "SS": 5}
 UPGRADES = os.path.join(HERE, "upgrades.json")   # 月末の決選投票で決まった格上げ(vote.py が書く)
+
+# ---------- 判定(持ち主の判定=判例と、それを読んだClaudeの判定) ----------
+# 2つのファイルに分ける(ボットとClaudeが同じファイルを書いて、ぶつかったときに片方が消えないように)。手順は tools/JUDGE.md
+#   scripts/judgments.json(ボットだけが書く):owner=持ち主がアプリの「持ち主の判定」から送ったもの(inbox.py が拾う)。1件=1つの判例。
+#       {"id", "gid", "at", "game", "to", "tags": [何がすごかった?], "text": ひとこと, "snap": そのときの試合の様子(collect.py が付ける)}
+#   scripts/claude_judge.json(Claudeだけが書く):claude={試合id: {"to": ランク or null(上げない), "why", "like": [似ている判例のid], "at"}}
+#       rules=判例からルールにする提案(Claudeが書き、持ち主が決める)
+JUDGMENTS = os.path.join(HERE, "judgments.json")
+CLAUDE_JUDGE = os.path.join(HERE, "claude_judge.json")
+JUDGE_TAGS = ["得点の爆発", "得点以外の万能型", "ベテラン・年齢", "節目の記録", "ケガ明け・復帰", "劇的な決め方",
+              "守備", "若手・ルーキー", "因縁・物語", "その他"]
+
+
+def load_judgments():
+    j = load_json(JUDGMENTS, None)
+    if not isinstance(j, dict):
+        j = {}
+    j.setdefault("owner", [])
+    return j
+
+
+def judged_all():
+    """試合id → 判定。同じ試合に持ち主の判定があれば持ち主が優先(Claudeの判定を直した記録にもなる)。持ち主は最後の1件"""
+    j = load_judgments()
+    cj = load_json(CLAUDE_JUDGE, {}) or {}
+    out = {}
+    for gid, c in (cj.get("claude") or {}).items():
+        if isinstance(c, dict) and c.get("to") in TIER_RANK:
+            out[str(gid)] = {"by": "claude", "to": c["to"], "why": str(c.get("why") or "")[:200],
+                             "like": [str(x) for x in c.get("like") or []][:5], "at": c.get("at")}
+    for o in sorted(j.get("owner") or [], key=lambda o: o.get("at") or ""):
+        if o.get("to") in TIER_RANK and str(o.get("gid") or "").isdigit():
+            out[str(o["gid"])] = {"by": "owner", "to": o["to"], "why": str(o.get("text") or "")[:200],
+                                  "tags": [t for t in o.get("tags") or [] if t in JUDGE_TAGS], "case": o.get("id"), "at": o.get("at")}
+    return out
+
+
+JUDGED = {}   # main() の最初に judged_all() で入れる
+
+
+def judged_public():
+    """画面・ランク付けに渡す分(誰の判定か・何ランクか だけ。理由は結果を開いたときだけ)"""
+    return {gid: {"to": v["to"], "by": v["by"]} for gid, v in JUDGED.items()}
+
+
+def judge_snapshots(records):
+    """持ち主の判例に、そのときの試合の様子を付ける(1回だけ)。Claudeが似た試合を見分ける材料。ネタバレなので公開しない"""
+    j = load_judgments()
+    by = {r["id"]: r for r in records}
+    changed = False
+    for o in j["owner"]:
+        r = by.get(str(o.get("gid")))
+        if o.get("snap") or not r or not r.get("bd"):
+            continue
+        bd = r["bd"]
+        o["snap"] = {"date": r["date"], "game": f"{r['away']}@{r['home']}", "calc": r.get("j_from") or r.get("tier") or GTIER.get(r["id"]),
+                     "total": fs(r),
+                     "stars": [f"{x['who']}({x['team']}) {'+'.join(x['why'])} {x['pts']}点"
+                               for x in bd["stars"]["items"] if x.get("k") == "star"],
+                     "flow": [x["txt"] for x in bd["flow"]["items"]],
+                     "record": [x.get("who", "") for x in bd["record"]["items"]],
+                     "spot": [f"{w['who']} いつもの{w['ratio']}倍" for w in (r.get("spot") or {}).get("who", [])]}
+        changed = True
+    if changed:
+        json.dump(j, open(JUDGMENTS, "w"), ensure_ascii=False, indent=1)
 
 
 def hall_ok(r):
@@ -2264,6 +2381,8 @@ def why_line(out):
         cand.append((out["buzz"]["pts"], "試合後も大きな話題"))
     if out["moment"]["pts"]:
         cand.append((out["moment"]["pts"], "名場面がバズった"))
+    if (out.get("spot") or {}).get("pts"):
+        cand.append((out["spot"]["pts"], f"{short_name(out['spot']['who'][0]['who'])}が大きな話題"))
     cand = [c for c in cand if c[0] > 0]
     cand.sort(key=lambda c: -c[0])
     if not cand:
@@ -2399,6 +2518,11 @@ def write_breakdowns(records, out_dir):
         out["absence"] = {"pts": r.get("absence", 0), "who": r.get("absent", {})}
         out["buzz"] = {"pts": buzz_pts, "d": r.get("buzz", {})}
         out["moment"] = {"pts": moment_bonus(r), "ratio": (r["moment"][1] if _moment_ok(r.get("moment")) else None)}
+        out["spot"] = {"pts": spot_bonus(r), "who": (r.get("spot") or {}).get("who", []),
+                       "capped": bool(r.get("spot")) and spot_bonus(r) < r["spot"]["pts"]}
+        jd = JUDGED.get(str(r["id"]))
+        if jd:
+            out["judge"] = {**jd, "from": r.get("j_from")}
         out["total"] = fs(r)
         out["why"] = why_line(out)
         # 見方の一言は、推しを隠している試合でも本当のランクで決める(隠している間「ランク外」用の文が出ていた)
@@ -2570,8 +2694,9 @@ def main():
     moment_scores(allrec)   # 測らない回(--no-buzz)も、今ある再生数で付け直す
     send_alerts(today, allrec)
     # 隠している間のお気に入りの試合は、比べる相手にも入れない(順位の抜けからバレないように)
+    JUDGED.clear(); JUDGED.update(judged_all())
     for r in allrec:
-        for k in ("tier", "ss_confirmed", "season_rank", "month_rank"):
+        for k in ("tier", "ss_confirmed", "season_rank", "month_rank", "j_from", "j_by"):
             r.pop(k, None)
     assign_tiers([r for r in allrec if not is_hidden(r)], prev_records, today)
     # 見方の一言用:隠している推しの試合も含めたランク(画面のランク・通知・順位には使わない)
@@ -2581,6 +2706,10 @@ def main():
         GTIER.update({r["id"]: r.get("tier") or "-" for r in full})
     except Exception:
         pass
+    try:
+        judge_snapshots(allrec)
+    except Exception as e:
+        print("judge snapshots failed:", type(e).__name__)
     records = allrec
     records.sort(key=lambda r: r["date"])
     arch = {r["id"]: r for r in records}
@@ -2613,7 +2742,8 @@ def main():
             "jerseys": star_jerseys(tinfo, roster_cache),
             "coach_ties": coach_ties_all(roster_cache),
             "coaches": coaches_by_abbr(),
-            "days": days, "future": future, "archive": pub, "upgrades": load_json(UPGRADES, {}), "vote": CFG.get("vote", {}),
+            "days": days, "future": future, "archive": pub, "upgrades": load_json(UPGRADES, {}), "judged": judged_public(),
+            "claude_max_steps": CFG["judge"]["claude_max_steps"], "judge_tags": JUDGE_TAGS, "spot": CFG["spot"], "vote": CFG.get("vote", {}),
             "suggest_topic": CFG.get("suggest_topic"), "rivalries": load_json(os.path.join(HERE, "rivalries.json"), {}),
             "suggested": suggested_pairs()}
     out_dir = os.environ.get("OUT_DIR", HERE)

@@ -205,6 +205,7 @@ jobs:
           git add scripts/prenotify_state.json 2>/dev/null || true
           git add scripts/notify_state.json 2>/dev/null || true
           git add scripts/news_state.json 2>/dev/null || true
+          git add scripts/judgments.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "余韻・決選投票の記録を更新"
           # 別の回と同時に記録を書いてぶつかったときは、この回の記録を優先して入れ直す(何回か試す)

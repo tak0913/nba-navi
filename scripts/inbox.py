@@ -125,5 +125,71 @@ def main():
             pass
 
 
+JUDGMENTS = os.path.join(HERE, "judgments.json")
+JTAGS = {"得点の爆発", "得点以外の万能型", "ベテラン・年齢", "節目の記録", "ケガ明け・復帰", "劇的な決め方",
+         "守備", "若手・ルーキー", "因縁・物語", "その他"}
+JTIERS = {"SS", "S", "A", "B", "C", "-"}
+
+
+def parse_judge(m):
+    """持ち主の判定(アプリの「持ち主の判定」から、持ち主の通知チャンネル=Secret の NTFY_TOPIC に送られたもの)。
+    チャンネル名を知っているのは持ち主だけなので、ここに届いた判定を持ち主のものとして扱う"""
+    try:
+        d = json.loads(m.get("message", ""))
+    except Exception:
+        return None
+    if not isinstance(d, dict) or d.get("kind") != "judge":
+        return None
+    gid, to = clean(d.get("gid"), 20), d.get("to")
+    if not gid.isdigit() or to not in JTIERS:
+        return None
+    tags = [t for t in (d.get("tags") or []) if t in JTAGS][:5]
+    return {"id": "o-" + clean(m.get("id"), 20), "gid": gid,
+            "at": dt.datetime.fromtimestamp(m.get("time", 0), dt.timezone.utc)
+            .astimezone(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec="minutes"),
+            "game": clean(d.get("game"), 40), "to": to, "tags": tags, "text": clean(d.get("text"), 300)}
+
+
+def judges():
+    """持ち主の判定を拾って judgments.json の owner に足す(判例になる。Claudeが読んで、似た試合を自分で判断する)"""
+    owner = os.environ.get("NTFY_TOPIC")
+    if not owner:
+        return
+    try:
+        j = json.load(open(JUDGMENTS))
+    except Exception:
+        j = {}
+    j.setdefault("owner", [])
+    since = j.get("last_poll") or int(time.time()) - 12 * 3600
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f"https://ntfy.sh/{owner}/json?poll=1&since={since}",
+                                                           headers={"User-Agent": "nba-navi"}), timeout=30) as r:
+            lines = r.read().decode("utf-8", "ignore").splitlines()
+    except Exception as e:
+        print("judge poll failed:", type(e).__name__)
+        return
+    seen = {o["id"] for o in j["owner"]}
+    new = 0
+    for ln in lines:
+        try:
+            m = json.loads(ln)
+        except Exception:
+            continue
+        if m.get("event") != "message":
+            continue
+        j["last_poll"] = max(j.get("last_poll") or 0, int(m.get("time", 0)))
+        it = parse_judge(m)
+        if it and it["id"] not in seen:
+            j["owner"].append(it)
+            seen.add(it["id"])
+            new += 1
+    json.dump(j, open(JUDGMENTS, "w"), ensure_ascii=False, indent=1)
+    print(f"judges: {new} new")
+
+
 if __name__ == "__main__":
     main()
+    try:
+        judges()
+    except Exception as e:
+        print("judges failed:", type(e).__name__)

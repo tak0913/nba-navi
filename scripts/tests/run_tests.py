@@ -302,9 +302,55 @@ def test_bsky():
         B._BSKY.clear(); B._BSKY.update(old[3]); B.BSKY_ERRORS.clear(); B.BSKY_ERRORS.update(old[4])
 
 
+def test_judge():
+    # 持ち主はランクをそのまま決める(上げも下げも)。Claudeは上げるだけ・1段まで。同じ試合は持ち主が優先
+    today = dt.date(2027, 2, 28)
+    rs = [rec(i, f"2027-02-{1 + i % 7:02d}", 10 + i * 2.5) for i in range(40)]
+    C.assign_tiers(rs, {}, today)
+    base = {r["id"]: r["tier"] for r in rs}
+    low = next(r["id"] for r in rs if base[r["id"]] == "C")
+    hi = next(r["id"] for r in rs if base[r["id"]] == "A")
+    mid = next(r["id"] for r in rs if base[r["id"]] == "B")
+    saved = dict(C.JUDGED)
+    try:
+        C.JUDGED.clear()
+        C.JUDGED.update({low: {"by": "claude", "to": "S", "why": ""}, hi: {"by": "owner", "to": "C", "why": ""},
+                         mid: {"by": "owner", "to": "S", "why": ""}})
+        C.assign_tiers(rs, {}, today)
+        by = {r["id"]: r for r in rs}
+        check("judge.claude_one_step", by[low]["tier"], "B")
+        check("judge.claude_story", by[low]["story"], "Claudeの判定")
+        check("judge.owner_down", by[hi]["tier"], "C")
+        check("judge.owner_up", by[mid]["tier"], "S")
+        check("judge.from", by[mid]["j_from"], "B")
+        # Claudeは下げない
+        C.JUDGED.clear(); C.JUDGED.update({hi: {"by": "claude", "to": "C", "why": ""}})
+        C.assign_tiers(rs, {}, today)
+        check("judge.claude_no_down", next(r for r in rs if r["id"] == hi)["tier"], "A")
+    finally:
+        C.JUDGED.clear(); C.JUDGED.update(saved)
+
+
+def test_spot():
+    # 話題の選手:その選手にしては何倍か。少ない再生数・ほかの選手の動画にたまたま名前が出ただけ・前の試合が足りない選手は数えない
+    hist = {}
+    for k in range(4):
+        hist[f"9{k}"] = {"d": f"2027-01-0{k + 1}", "h": "AAA", "a": "BBB", "t": 300000,
+                         "p": {"Star A": ["AAA", 150000], "Role B": ["BBB", 20000]}}
+    hist["99"] = {"d": "2027-01-09", "h": "AAA", "a": "BBB", "t": 3000000,
+                  "p": {"Star A": ["AAA", 1300000], "Role B": ["BBB", 500000], "New C": ["AAA", 2000000]}}
+    rs = [rec(0, "2027-01-09", 40, id="99")]
+    C.spot_scores(rs, hist)
+    sp = rs[0].get("spot") or {}
+    check("spot.who", [w["who"] for w in sp.get("who", [])], ["Star A"])   # Role Bは80万未満、New Cは前の試合なし
+    check("spot.pts", sp.get("pts"), C.CFG["spot"]["bonus_big"])   # 130万÷15万=8.7倍
+    rs[0]["moment"] = [10, 3.0, C.MOMENT_VER]
+    check("spot.cap", C.spot_bonus(rs[0]), C.CFG["spot"]["cap_with_moment"] - 10)
+
+
 def main():
     update = "--update" in sys.argv
-    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_quarters, test_arena_return, test_bsky):
+    for t in (lambda: test_snapshot(update), test_tiers, test_surprise, test_absence, test_text, test_news, test_quarters, test_arena_return, test_bsky, test_judge, test_spot):
         try:
             t()
         except Exception as e:

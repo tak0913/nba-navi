@@ -1,6 +1,7 @@
 // ランク付けの計算(アプリと、サーバーの通知づくりの両方がこのファイルを使う。直すのはここだけ)
 // records: [{id, date, season, type, score, legend, hall_ok}] に tier などを書き込む
-// opts: {T: ランクの基準, R: ルール, prev: 昨季の点数 {type: [点…]}, today: "YYYY-MM-DD", upgrades: 決選投票の格上げ}
+// opts: {T: ランクの基準, R: ルール, prev: 昨季の点数 {type: [点…]}, today: "YYYY-MM-DD", upgrades: 決選投票の格上げ,
+//        judged: 持ち主・Claudeの判定 {試合id: {to, by: "owner"|"claude"}}, claude_max_steps: Claudeが上げられる段数}
 (function (root) {
   function weekStart(d) {
     const x = new Date(d + "T00:00:00Z");
@@ -17,7 +18,7 @@
 
   function assignTiers(records, opts) {
     const T = opts.T, R = opts.R, prev = opts.prev || {}, ups = opts.upgrades || {};
-    records.forEach(r => { r.tier = null; r.ss_confirmed = false; r.season_rank = null; r.month_rank = null; r.up_from = null; r.story = null; });
+    records.forEach(r => { r.tier = null; r.ss_confirmed = false; r.season_rank = null; r.month_rank = null; r.up_from = null; r.story = null; r.j_from = null; r.j_by = null; });
     const pools = {};
     records.forEach(r => { (pools[r.season + "|" + r.type] = pools[r.season + "|" + r.type] || []).push(r); });
     const gt = (arr, s) => arr.reduce((n, v) => n + (v > s ? 1 : 0), 0);
@@ -61,6 +62,21 @@
       if (!u || !r.tier) return;
       if (RK[u.to] > RK[r.tier]) { r.tier = u.to; r.ss_confirmed = r.tier === "SS" && !!r.hall_ok; }
       r.up_from = u.from; r.story = u.why;
+    });
+    // 判定(scripts/judgments.json):持ち主はランクをそのまま決める(上げも下げも)。Claudeは上げるだけ・maxUp段まで。
+    // 理由の文は結果を開いたときだけ(b/<試合id>.json)。ここでは「誰の判定か」だけ(ネタバレにならないように)
+    const J = opts.judged || {}, maxUp = opts.claude_max_steps || 1, NAME = ["-", "C", "B", "A", "S", "SS"];
+    records.forEach(r => {
+      const j = J[r.id];
+      if (!j || !r.tier || RK[j.to] === undefined) return;
+      const before = r.tier;
+      if (j.by === "owner") r.tier = j.to;
+      else if (RK[j.to] > RK[before]) r.tier = NAME[Math.min(RK[j.to], RK[before] + maxUp)];
+      r.j_from = before; r.j_by = j.by;
+      if (r.tier !== before) {
+        r.up_from = before; r.story = j.by === "owner" ? "持ち主の判定" : "Claudeの判定";
+        r.ss_confirmed = r.tier === "SS" && !!r.hall_ok;
+      }
     });
     return records;
   }

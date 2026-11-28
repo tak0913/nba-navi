@@ -196,5 +196,22 @@
     "poll_seconds": 90,
     "max_wait_minutes": 70,
     "max_minutes": 340
+  },
+  "spot": {
+    "_note": "話題の選手(選手ごとの反応):切り抜き動画のうち、その選手の名前が題名にある動画の再生数が、その選手のいつもの値(それより前の試合の真ん中の値。base_floor より小さければ base_floor)の何倍か。ratio倍以上・min_views再生以上・その試合の切り抜き全体のmin_share以上なら+bonus、ratio_big倍以上なら+bonus_big。名場面ボーナスと合わせてcap_with_momentまで。前の試合がmin_samples試合未満の選手は測らない。点の表(スターの活躍)に出ないすごさを、見た人の反応で拾う",
+    "ratio": 4.0,
+    "bonus": 5,
+    "ratio_big": 8.0,
+    "bonus_big": 10,
+    "min_views": 800000,
+    "min_share": 0.2,
+    "base_floor": 100000,
+    "min_samples": 3,
+    "cap_with_moment": 15
+  },
+  "judge": {
+    "_note": "持ち主の判定(scripts/judgments.json の owner)はランクをそのまま決める(上げも下げも)。Claudeの判定(claude)は上げるだけ・claude_max_steps段まで。持ち主があとから同じ試合を判定したら持ち主が優先(=Claudeが直された記録になる)。同じ『何がすごかった?』の判例が rule_after 件たまったら、Claudeがルールにする提案を出す",
+    "claude_max_steps": 1,
+    "rule_after": 3
   }
 }

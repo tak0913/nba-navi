@@ -7,7 +7,7 @@ process.stdin.on("end", () => {
   const { jobs } = JSON.parse(buf);
   const out = jobs.map(j => assignTiers(j.records, j.opts).map(r => ({
     id: r.id, tier: r.tier, ss_confirmed: r.ss_confirmed, season_rank: r.season_rank,
-    month_rank: r.month_rank, up_from: r.up_from, story: r.story,
+    month_rank: r.month_rank, up_from: r.up_from, story: r.story, j_from: r.j_from, j_by: r.j_by,
   })));
   process.stdout.write(JSON.stringify(out));
 });

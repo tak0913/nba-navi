@@ -152,6 +152,16 @@ th{color:var(--sub);font-weight:500}
 .rate .rsend{width:100%;padding:9px;border-radius:9px;border:0;background:var(--brand);color:#fff;font-weight:700;font-size:13px;margin-bottom:6px}
 .rate .rsend:disabled{background:var(--panel);color:var(--sub);border:1px solid var(--line)}
 .rate .rb button.on{border-color:var(--brand);background:rgba(255,122,61,.15);color:var(--brand)}
+.judge{margin:12px 0 4px;padding:10px;border:1px solid var(--ss);border-radius:12px;background:var(--panel2);font-size:13px}
+.judge .q{font-weight:700;font-size:14px;margin-bottom:6px}
+.judge .rb{display:flex;gap:5px;margin:6px 0;flex-wrap:wrap}
+.judge .rb button{flex:1;min-width:40px;padding:8px 2px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:13px;font-weight:600}
+.judge .tg{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+.judge .tg button{padding:6px 9px;border-radius:14px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12px}
+.judge button.on{border-color:var(--brand);background:rgba(255,122,61,.15);color:var(--brand)}
+.judge textarea{width:100%;box-sizing:border-box;min-height:56px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:8px;font-size:13px}
+.judge .jsend{width:100%;padding:9px;border-radius:9px;border:0;background:var(--brand);color:#fff;font-weight:700;font-size:13px;margin-top:6px}
+.judge .jsend:disabled{background:var(--panel);color:var(--sub);border:1px solid var(--line)}
 .tv{margin:0 14px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
 .tv summary{list-style:none;cursor:pointer;padding:8px 10px;font-size:13px;font-weight:700;color:#ffd0a8}
 .tv summary::-webkit-details-marker{display:none}
@@ -268,7 +278,7 @@ nav button .nb{display:inline-block;min-width:18px;margin-left:5px;padding:0 5px
 
 <script src="tiers.js?v=1"></script>
 <script>
-const APP_VER="2026-11-10c";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
+const APP_VER="2026-11-28a";   // 画面を直したら変える。データ側と違ったら自動で読み込み直す(ホーム画面のアプリが古い画面のままになるのを防ぐ)
 // 今開いている結果(スマホには保存しない。別のタブに行ったり、アプリを離れたりしたら閉じる)
 const OPEN=new Set();
 // 1段目のネタバレ(見方の一言だけ)を開いた試合。スマホには保存しない(別のタブ・別の日・アプリを離れたら閉じる)
@@ -306,7 +316,7 @@ const weekStart=Tiers.weekStart, daysBetween=Tiers.daysBetween;
 function computeTiers(){
   VISIBLE=DATA.archive.filter(r=>!isHidden(r));
   DATA.archive.forEach(r=>{r.tier=null;r.ss_confirmed=false;r.season_rank=null;r.month_rank=null;r.up_from=null;r.story=null});
-  Tiers.assignTiers(VISIBLE,{T:DATA.tiers,R:DATA.rules,prev:DATA.prev,today:DATA.today,upgrades:DATA.upgrades});
+  Tiers.assignTiers(VISIBLE,{T:DATA.tiers,R:DATA.rules,prev:DATA.prev,today:DATA.today,upgrades:DATA.upgrades,judged:DATA.judged,claude_max_steps:DATA.claude_max_steps});
   const byId={}; DATA.archive.forEach(r=>byId[r.id]=r);
   allDays().forEach(d=>d.games.forEach(g=>{
     const r=byId[g.id], isFavTeam=!!FAV&&g.teams.some(t=>t.abbr===FAV);
@@ -607,10 +617,56 @@ function renderBd(id,b){
     bdRow("⑥ いつものスタメンの欠場",b.absence.pts,0,ab.concat(ab.length&&b.flow.pts>=(DATA.rules.absence_soften_flow??30)?["展開の点が高い試合なので減点は半分"]:[])),
     bdRow("余韻(試合後にどれだけ話題になったか)",b.buzz.pts,0,[`同じ夜の試合の中での話題の大きさ(100%が一番):1日後 ${pc(bz.d1)}/7日後 ${pc(bz.d7)}/30日後 ${pc(bz.d30)}`,"測れた分の平均で決まるから、7日後・30日後に点が動くよ"]),
     bdRow("名場面ボーナス",b.moment.pts,0,b.moment.pts?[`切り抜き動画が、そのチームのいつもの${b.moment.ratio??"?"}倍見られた`]:(b.moment.ratio?[`切り抜き動画はいつもの${b.moment.ratio}倍(${(DATA.moment||{}).ratio??2}倍から加点)`]:[])),
+    spotRow(b.spot),
   ].join("");
   return `<h3>この試合の点数(今の時点)</h3><div class="why">${esc(b.why||"")}</div>${b.guide&&!GUIDE.has(id)?`<div class="guide">▶ ${esc(b.guide)}</div>`:""}<div class="bdtotal">合計 <b>${b.total}点</b> ${tier}</div>${rows}
+    ${judgeBox(id,b.judge)}
     ${rateBox(id,b.votes||{})}
     <div class="d" style="margin-top:8px">「この点数はおかしい」と思ったら教えてね <button class="copy" data-act="gopost" data-id="${id}">投稿する</button></div>`;
+}
+// ---- 話題の選手(選手ごとの反応):点の表に出ないすごさを、見た人の反応で拾う ----
+function spotRow(sp){
+  if(!sp||!(sp.who||[]).length) return "";
+  const S=DATA.spot||{};
+  const lines=sp.who.map(w=>`${esc(w.who)}(${esc(w.team)}):その選手の切り抜き動画が、いつもの${w.ratio}倍見られた(${Math.round(w.views/10000)}万再生)`);
+  if(sp.capped) lines.push(`名場面ボーナスと合わせて${S.cap_with_moment??15}点までなので、ここは${sp.pts}点`);
+  return bdRow("🗣 話題の選手",sp.pts,0,lines);
+}
+// ---- 判定(持ち主の判定=判例と、それを読んだClaudeの判定) ----
+// 持ち主のスマホだけ:設定で「持ち主の通知チャンネル」を入れると、結果の中に判定の欄が出る(送り先はそのチャンネル。名前を知っているのは持ち主だけ)
+function ownerTopic(){return store.get("owner_topic")||""}
+const JPICK={};
+function judgeBox(id,j){
+  let h="";
+  if(j){
+    const who=j.by==="owner"?"👑 持ち主の判定":"🤖 Claudeの判定";
+    const mv=j.from&&j.from!==j.to?`${j.from==="-"?"ランク外":j.from}→${j.to==="-"?"ランク外":j.to}`:`${j.to==="-"?"ランク外":j.to}のまま`;
+    h+=`<div class="judge"><div class="q">${who}:${mv}</div>${j.why?`<div>${esc(j.why)}</div>`:""}
+      ${(j.tags||[]).length?`<div class="d">何がすごかった?:${j.tags.map(esc).join("・")}</div>`:""}
+      ${(j.like||[]).length?`<div class="d">似ている前の判例:${j.like.map(esc).join("、")}</div>`:""}
+      ${j.by==="claude"?`<div class="d">点数の表には出ないすごさを、前に持ち主が上げた試合(判例)とくらべて決めたよ。上げるだけ・${DATA.claude_max_steps??1}段まで</div>`:""}</div>`;
+  }
+  if(!ownerTopic()) return h;
+  const p=JPICK[id]||(JPICK[id]={to:"",tags:[]});
+  const tiers=["SS","S","A","B","C"];
+  return h+`<div class="judge" id="jb_${id}"><div class="q">👑 持ち主の判定(あなただけに見えてる)</div>
+    <div class="d">この試合は何ランクがふさわしい?(今の計算と同じなら、それも判例になる)</div>
+    <div class="rb">${tiers.map(t=>`<button class="${p.to===t?"on":""}" data-act="jto" data-id="${id}" data-v="${t}">${t}</button>`).join("")}</div>
+    <div class="d">何がすごかった?(いくつでも)</div>
+    <div class="tg">${(DATA.judge_tags||[]).map(t=>`<button class="${p.tags.includes(t)?"on":""}" data-act="jtag" data-id="${id}" data-v="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <textarea id="jt_${id}" placeholder="ひとこと(例:41歳でこの万能ぶりは表じゃ測れない)">${esc(p.text||"")}</textarea>
+    <button class="jsend" data-act="jsend" data-id="${id}" ${p.to?"":"disabled"}>送る</button>
+    <div class="d" id="jm_${id}">送ると次の更新(1時間以内)でランクに入って、Claudeが次から似た試合を自分で判断する材料(判例)になるよ</div></div>`;
+}
+function sendJudge(el){
+  const id=el.dataset.id, p=JPICK[id]; if(!p||!p.to) return;
+  const t=document.getElementById("jt_"+id); p.text=t?t.value.trim():"";
+  const r=DATA.archive.find(x=>x.id===id), game=r?`${r.date} ${r.away}@${r.home}`:"";
+  if(!p.tags.length&&!p.text){const m=document.getElementById("jm_"+id); if(m) m.textContent="何がすごかったか(選ぶかひとこと)がないと、Claudeが似た試合を見分けられないよ"; return}
+  el.disabled=true; el.textContent="送信中…";
+  fetch("https://ntfy.sh/"+ownerTopic(),{method:"POST",body:JSON.stringify({kind:"judge",gid:id,game,to:p.to,tags:p.tags,text:p.text})})
+    .then(r=>{if(!r.ok) throw 0; el.textContent="送った ✓"; const m=document.getElementById("jm_"+id); if(m) m.textContent="届いたよ。次の更新でランクに入る"})
+    .catch(()=>{el.disabled=false; el.textContent="送れなかった。もう一度送る"});
 }
 // ---- 見た人の「面白かった?」(匿名。同じスマホが押し直したら最後の1回だけ数える) ----
 const RATE_JA={good:"◎ 面白かった",ok:"○ 普通",bad:"△ イマイチ"};
@@ -850,6 +906,10 @@ function renderHelp(){
   ${sec("HCの因縁(試合前の見どころに1つだけ出る)",(()=>{const ts=DATA.coach_ties||[]; if(!ts.length) return "今は登録なし";
     const by={}; ts.forEach(t=>(by[t.label]=by[t.label]||[]).push(t));
     return Object.entries(by).map(([k,v])=>`<b>${esc(k)}</b><br>${v.map(t=>`・${t.teams.join(" vs ")}:${esc(t.text)}`).join("<br>")}`).join("<br><br>")+`<br><br><span style="color:var(--sub);font-size:12px">HCが代わったり、選手が移籍したら自動で外れる。強さはファイナル再戦>恩師vs教え子>古巣>師弟対決>一門の順</span>`})())}
+  ${sec("話題の選手と判定(点数の表に出ないすごさ)",`<b>🗣 話題の選手</b>:その選手の名前が題名にある切り抜き動画が、<b>その選手にしては</b>何倍見られたか(その選手の前の試合の真ん中の値とくらべる)。${(DATA.spot||{}).ratio??4}倍以上で+${(DATA.spot||{}).bonus??5}点、${(DATA.spot||{}).ratio_big??8}倍以上で+${(DATA.spot||{}).bonus_big??10}点(${((DATA.spot||{}).min_views??800000)/10000}万再生未満は0点。名場面ボーナスと合わせて${(DATA.spot||{}).cap_with_moment??15}点まで)。年齢・節目・決め方みたいに、点数の表では測れないすごさを、見た人の反応で拾う。<br><br>
+    <b>👑 持ち主の判定</b>:作った人が「この試合はこのランク」と決めたもの。理由と「何がすごかったか」が判例として残る。<br>
+    <b>🤖 Claudeの判定</b>:Claudeが毎日、前の判例とくらべて「似たすごさ」の試合を上げる(上げるだけ・${DATA.claude_max_steps??1}段まで)。持ち主があとから直したら持ち主が優先。同じ種類の判例がたまったら、点数の決まりにするかを持ち主に提案する。<br>
+    <span style="color:var(--sub)">ランクの横に「B→A(持ち主の判定)」のように出る。理由は結果を開いたときだけ。</span>`)}
   ${sec("7. 月末の決選投票(民衆が決める)",`毎月2日に、先月のS・Aの試合と「物語」(シーズンを通した50点ゲームの量産や、今まさに燃えている因縁の対決など。めったに出ない)を候補にして、公式Blueskyで投票を始める。<br>
     ・投票は候補の投稿に「いいね」(リポストも1票)<br>
     ・8日の12時に締め切って、上位${(DATA.vote||{}).winners??3}つを1段格上げ(A→S、S→SS候補)<br>
@@ -946,6 +1006,10 @@ function renderSettings(){
     <div style="color:var(--sub);font-size:12px;margin-top:8px">送るのはアプリのリンクだけ。試合の結果やランクは送らないよ</div></div>
   <div class="set"><h4>使い方</h4><button class="copy" data-act="ob" style="width:100%">使い方をもう一度見る</button></div>
   <div class="set"><h4>あなたの評価とランクのくらべ</h4>${myGaps()}</div>
+  ${ownerTopic()||/[?&#]owner/.test(location.href)?`<div class="set"><h4>持ち主用</h4>
+    <div style="font-size:13px">持ち主の通知チャンネル名(ntfy で受け取っている自分用のチャンネル)を入れると、結果の中に「持ち主の判定」が出る。送った判定はランクに入って、Claudeが似た試合を自分で判断するときの判例になる。</div>
+    <div class="topic"><input id="otopic" value="${esc(ownerTopic())}" placeholder="チャンネル名" style="flex:1;min-width:0;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text)"><button class="copy" data-act="osave">保存</button></div>
+    <div style="color:var(--sub);font-size:12px;margin-top:8px">このスマホにだけ保存される。チャンネル名は人に教えないでね(知っている人は判定を送れてしまう)。消すと欄が消える。</div></div>`:""}
   <div class="set"><h4>この端末の情報</h4><div style="color:var(--sub);font-size:13px">推し:${FAV?esc(DATA.teams[FAV]||FAV):"なし"}<br>データ更新:${DATA.generated_at.replace("T"," ")}</div></div>`;
 }
 // ---- はじめての使い方(最初の1回だけ。設定タブから見直せる) ----
@@ -1028,6 +1092,13 @@ document.getElementById("main").addEventListener("click",e=>{
   if(act==="watched"){store.set("watched_"+id,"1");computeTiers();render();return}
   if(act==="rate"){pickRate(el);return}
   if(act==="ratesend"){sendRate(el);return}
+  if(act==="jto"){const p=JPICK[id]||(JPICK[id]={to:"",tags:[]}); p.to=el.dataset.v;
+    el.parentNode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===el));
+    const b=document.querySelector(`#jb_${id} .jsend`); if(b){b.disabled=false; b.textContent="送る"} return}
+  if(act==="jtag"){const p=JPICK[id]||(JPICK[id]={to:"",tags:[]}), v=el.dataset.v;
+    p.tags=p.tags.includes(v)?p.tags.filter(x=>x!==v):p.tags.concat(v); el.classList.toggle("on"); return}
+  if(act==="jsend"){sendJudge(el);return}
+  if(act==="osave"){const v=(document.getElementById("otopic")||{}).value||""; store.set("owner_topic",v.trim()); render(); return}
   if(act==="cal"){addCal(allGames().find(x=>x.id===id));return}
   if(act==="why"){
     const box=document.getElementById("wy_"+id); if(!box) return;
